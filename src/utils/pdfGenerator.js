@@ -4,7 +4,8 @@ import {
   format, 
   parseISO, 
   isValid, 
-  isDate 
+  isDate,
+  getDay
 } from 'date-fns';
 
 export const generatePDF = (data, type = 'monthly') => {
