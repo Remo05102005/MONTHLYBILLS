@@ -19,7 +19,6 @@ import {
   FormControlLabel,
   FormLabel,
   InputAdornment,
-  Paper,
   IconButton,
   useTheme,
   useMediaQuery,

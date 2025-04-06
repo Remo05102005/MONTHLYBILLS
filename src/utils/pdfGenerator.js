@@ -1,6 +1,11 @@
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { format, parseISO, isValid, isDate, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, subMonths, subYears, isSameMonth, isSameYear, isSameDay, differenceInDays, getDay, getDate, getMonth, getYear } from 'date-fns';
+import { 
+  format, 
+  parseISO, 
+  isValid, 
+  isDate 
+} from 'date-fns';
 
 export const generatePDF = (data, type = 'monthly') => {
   try {

@@ -31,12 +31,12 @@ import {
   Snackbar,
   Alert,
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, TrendingUp as TrendingUpIcon, TrendingDown as TrendingDownIcon, Equalizer as EqualizerIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { selectTransactions, updateTransaction, deleteTransaction } from '../store/transactionSlice';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, isSameDay, startOfDay, endOfDay, isWithinInterval, eachDayOfInterval, subDays } from 'date-fns';
+import { format, isSameDay, startOfDay, endOfDay, isWithinInterval, subDays } from 'date-fns';
 import {
   BarChart,
   Bar,
