@@ -1,175 +1,183 @@
-import React, { useState, useRef } from 'react';
-import { useDispatch } from 'react-redux';
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { saveData, getData } from '../firebase/database';
 import {
-  Box,
+  Container,
+  Paper,
   Typography,
-  Card,
-  CardContent,
   TextField,
   Button,
+  Box,
   Avatar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Snackbar,
   Alert,
+  Grid,
+  IconButton,
 } from '@mui/material';
-import { PhotoCamera, Delete } from '@mui/icons-material';
-import { resetTransactions } from '../store/transactionSlice';
+import { PhotoCamera, Logout } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 
-const Profile = () => {
-  const dispatch = useDispatch();
-  const [name, setName] = useState(localStorage.getItem('userName') || 'John Doe');
-  const [avatar, setAvatar] = useState(localStorage.getItem('userAvatar') || '');
-  const [openDialog, setOpenDialog] = useState(false);
+export default function Profile() {
+  const theme = useTheme();
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const fileInputRef = useRef(null);
+  const [success, setSuccess] = useState('');
+  const [userData, setUserData] = useState({
+    displayName: '',
+    phoneNumber: '',
+    address: '',
+    avatar: '',
+  });
 
-  const handleNameChange = (event) => {
-    setName(event.target.value);
-  };
-
-  const handleAvatarClick = () => {
-    fileInputRef.current.click();
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      if (file.size > 5000000) { // 5MB limit
-        setError('File size should be less than 5MB');
-        return;
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const data = await getData(`users/${currentUser.uid}`);
+        if (data) {
+          setUserData(prevData => ({
+            ...prevData,
+            ...data
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatar(reader.result);
-        localStorage.setItem('userAvatar', reader.result);
-        // Trigger storage event for other components
-        window.dispatchEvent(new Event('storage'));
-      };
-      reader.readAsDataURL(file);
-    }
+    };
+
+    loadUserData();
+  }, [currentUser]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setUserData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = () => {
-    if (name.trim() === '') {
-      setError('Name cannot be empty');
-      return;
-    }
-    localStorage.setItem('userName', name);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
     setError('');
-    setSuccess(true);
-    // Trigger storage event for other components
-    window.dispatchEvent(new Event('storage'));
+    setSuccess('');
+
+    try {
+      await saveData(`users/${currentUser.uid}`, {
+        ...userData,
+        email: currentUser.email,
+        updatedAt: new Date().toISOString()
+      });
+      setSuccess('Profile updated successfully!');
+    } catch (error) {
+      setError('Failed to update profile. Please try again.');
+      console.error('Error updating profile:', error);
+    }
+    setLoading(false);
   };
 
-  const handleDeleteAllData = () => {
-    setOpenDialog(true);
-  };
-
-  const confirmDelete = () => {
-    dispatch(resetTransactions());
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userAvatar');
-    setName('John Doe');
-    setAvatar('');
-    setOpenDialog(false);
-    // Trigger storage event for other components
-    window.dispatchEvent(new Event('storage'));
+  const handleLogout = async () => {
+    try {
+      setError('');
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      setError('Failed to log out. Please try again.');
+    }
   };
 
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Profile Settings
-      </Typography>
-
-      <Card sx={{ maxWidth: 600, mx: 'auto', mt: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-            <Avatar
-              src={avatar}
-              sx={{ width: 120, height: 120, mb: 2, cursor: 'pointer' }}
-              onClick={handleAvatarClick}
-            />
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              ref={fileInputRef}
-              onChange={handleFileChange}
-            />
-            <Button
-              variant="outlined"
-              startIcon={<PhotoCamera />}
-              onClick={handleAvatarClick}
-            >
-              Change Photo
-            </Button>
-          </Box>
-
-          <TextField
-            fullWidth
-            label="Name"
-            value={name}
-            onChange={handleNameChange}
-            margin="normal"
-            error={!!error}
-            helperText={error}
-          />
-
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between' }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSave}
-            >
-              Save Changes
-            </Button>
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<Delete />}
-              onClick={handleDeleteAllData}
-            >
-              Delete All Data
-            </Button>
-          </Box>
-        </CardContent>
-      </Card>
-
-      <Dialog
-        open={openDialog}
-        onClose={() => setOpenDialog(false)}
-      >
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete all your data? This action cannot be undone.
+    <Container maxWidth="sm" sx={{ mt: 2, mb: 2, p: 0 }}>
+      <Paper sx={{ p: { xs: 2, sm: 4 }, borderRadius: 4, boxShadow: 6, maxWidth: 480, mx: 'auto' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+          <Avatar src={userData.avatar} sx={{ width: 90, height: 90, mb: 1 }} />
+          <Typography component="h1" variant="h5" fontWeight={700} sx={{ mb: 1 }}>
+            Profile Settings
           </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button onClick={confirmDelete} color="error">
-            Delete All Data
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
-        open={success}
-        autoHideDuration={3000}
-        onClose={() => setSuccess(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={() => setSuccess(false)} severity="success">
-          Changes saved successfully!
-        </Alert>
-      </Snackbar>
-    </Box>
+        </Box>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+        <Box component="form" onSubmit={handleSubmit}>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Email"
+                value={currentUser.email}
+                disabled
+                variant="outlined"
+                sx={{ backgroundColor: 'background.paper', borderRadius: 2 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Display Name"
+                name="displayName"
+                value={userData.displayName}
+                onChange={handleChange}
+                variant="outlined"
+                sx={{ backgroundColor: 'background.paper', borderRadius: 2 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Phone Number"
+                name="phoneNumber"
+                value={userData.phoneNumber}
+                onChange={handleChange}
+                variant="outlined"
+                sx={{ backgroundColor: 'background.paper', borderRadius: 2 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Address"
+                name="address"
+                value={userData.address}
+                onChange={handleChange}
+                multiline
+                rows={3}
+                variant="outlined"
+                sx={{ backgroundColor: 'background.paper', borderRadius: 2 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                size="large"
+                fullWidth
+                disabled={loading}
+                sx={{ borderRadius: 2, py: 1.5, fontWeight: 600, fontSize: '1rem' }}
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </Grid>
+            <Grid item xs={12} sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, mt: 1 }}>
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={() => navigate('/change-password')}
+                fullWidth
+                sx={{ borderRadius: 2, fontWeight: 600 }}
+              >
+                Change Password
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={handleLogout}
+                fullWidth
+                sx={{ borderRadius: 2, fontWeight: 600 }}
+              >
+                Logout
+              </Button>
+            </Grid>
+          </Grid>
+        </Box>
+      </Paper>
+    </Container>
   );
-};
-
-export default Profile; 
+} 

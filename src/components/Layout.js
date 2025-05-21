@@ -16,30 +16,27 @@ import {
 import {
   Menu as MenuIcon,
   Home as HomeIcon,
-  Receipt as ReceiptIcon,
-  CalendarToday as CalendarIcon,
-  Insights as InsightsIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
+import { useAuth } from '../contexts/AuthContext';
+import { getData } from '../firebase/database';
 
 const drawerWidth = 240;
 
 const Layout = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [userName, setUserName] = useState(localStorage.getItem('userName') || 'John Doe');
-  const [userAvatar, setUserAvatar] = useState(localStorage.getItem('userAvatar') || '');
+  const [profile, setProfile] = useState({ displayName: '', avatar: '' });
+  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      setUserName(localStorage.getItem('userName') || 'John Doe');
-      setUserAvatar(localStorage.getItem('userAvatar') || '');
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    if (currentUser) {
+      getData(`users/${currentUser.uid}`).then(data => {
+        if (data) setProfile(data);
+      });
+    }
+  }, [currentUser]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -47,9 +44,6 @@ const Layout = ({ children }) => {
 
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
-    { text: 'Expenditure', icon: <ReceiptIcon />, path: '/expenditure' },
-    { text: 'Daily Logs', icon: <CalendarIcon />, path: '/daily-logs' },
-    { text: 'Insights', icon: <InsightsIcon />, path: '/insights' },
     { text: 'Profile', icon: <PersonIcon />, path: '/profile' },
   ];
 
@@ -58,10 +52,10 @@ const Layout = ({ children }) => {
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
         <Avatar
           sx={{ width: 80, height: 80, mb: 1 }}
-          alt={userName}
-          src={userAvatar}
+          alt={profile.displayName || 'User'}
+          src={profile.avatar}
         />
-        <Typography variant="h6">{userName}</Typography>
+        <Typography variant="h6">{profile.displayName || 'User'}</Typography>
       </Box>
       <List>
         {menuItems.map((item) => (
@@ -105,7 +99,7 @@ const Layout = ({ children }) => {
             COMMON MAN
           </Typography>
           <IconButton color="inherit" onClick={() => navigate('/profile')}>
-            <Avatar src={userAvatar} alt={userName} />
+            <Avatar src={profile.avatar} alt={profile.displayName || 'User'} />
           </IconButton>
         </Toolbar>
       </AppBar>

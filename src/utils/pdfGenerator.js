@@ -217,9 +217,20 @@ export const generatePDF = (data, type = 'monthly') => {
     
     // Add period information
     let currentY = 75;
+    let periodStr = '';
     if (data.statistics?.period) {
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Period: ${data.statistics.period.charAt(0).toUpperCase() + data.statistics.period.slice(1)}`, pageWidth / 2, currentY, { align: 'center' });
+      if (typeof data.statistics.period === 'string') {
+        periodStr = data.statistics.period.charAt(0).toUpperCase() + data.statistics.period.slice(1);
+      } else if (isDate(data.statistics.period)) {
+        periodStr = format(data.statistics.period, 'MMMM yyyy');
+      } else {
+        try {
+          periodStr = format(new Date(data.statistics.period), 'MMMM yyyy');
+        } catch {
+          periodStr = String(data.statistics.period);
+        }
+      }
+      doc.text(`Period: ${periodStr}`, pageWidth / 2, currentY, { align: 'center' });
       currentY += 15;
     }
     
@@ -772,12 +783,13 @@ export const generatePDF = (data, type = 'monthly') => {
           fontStyle: 'bold'
         },
         styles: { 
-          fontSize: 9,
-          cellPadding: 4
+          fontSize: 10,
+          cellPadding: 5,
+          overflow: 'linebreak',
         },
         columnStyles: { 
-          3: { halign: 'right' },
-          4: { cellWidth: 40 }
+          3: { halign: 'right', cellWidth: 30 },
+          4: { cellWidth: 50 }
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245]
@@ -823,7 +835,8 @@ export const testPDFGeneration = () => {
       avgDailyExpense: 1000,
       daysWithTransactions: 30,
       totalDays: 30,
-      period: 'January 2024'
+      period: 'January 2024',
+      startDate: format(new Date(), 'MMMM yyyy'),
     },
     transactions: [
       {

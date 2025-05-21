@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -16,6 +16,21 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   CircularProgress,
+  Table,
+  TableHead,
+  TableBody,
+  TableCell,
+  TableRow,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -26,77 +41,61 @@ import {
   TrendingDown as TrendingDownIcon,
   Equalizer as EqualizerIcon,
 } from '@mui/icons-material';
-import { selectTransactions, addTransaction } from '../store/transactionSlice';
-import { generatePDF } from '../utils/pdfGenerator';
+import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync } from '../store/transactionSlice';
+import { fetchTransactionsByDateRange } from '../firebase/transactions';
+import { auth } from '../firebase/config';
+import { generateMonthlyReport } from '../utils/reportGenerator';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
+import { useAuth } from '../contexts/AuthContext';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
 const Home = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const transactions = useSelector(selectTransactions);
+  const { currentUser } = useAuth();
+  const transactions = useSelector(state => state.transactions.transactions);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [timePeriod, setTimePeriod] = useState('month');
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [reportTransactions, setReportTransactions] = useState([]);
+  const [openReportMonthDialog, setOpenReportMonthDialog] = useState(false);
+  const [selectedReportMonth, setSelectedReportMonth] = useState(new Date());
+  const [editTransaction, setEditTransaction] = useState(null);
+  const [selectedInsight, setSelectedInsight] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState(null);
+
+  useEffect(() => {
+    if (currentUser) {
+      dispatch(fetchTransactions());
+    } else {
+      dispatch(setTransactions([]));
+    }
+    // eslint-disable-next-line
+  }, [currentUser]);
 
   const filteredTransactions = useMemo(() => {
-    const now = new Date();
-    let startDate, endDate;
-
-    switch (timePeriod) {
-      case 'week':
-        startDate = startOfWeek(now);
-        endDate = endOfWeek(now);
-        break;
-      case 'year':
-        startDate = startOfYear(now);
-        endDate = endOfYear(now);
-        break;
-      case 'today':
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        endDate = new Date(now.setHours(23, 59, 59, 999));
-        break;
-      default: // month
-        startDate = startOfMonth(now);
-        endDate = endOfMonth(now);
-    }
-
+    const startDate = startOfMonth(selectedMonth);
+    const endDate = endOfMonth(selectedMonth);
     return transactions.filter(t => {
       const date = new Date(t.date);
       return isWithinInterval(date, { start: startDate, end: endDate });
     });
-  }, [transactions, timePeriod]);
+  }, [transactions, selectedMonth]);
 
   // Group transactions by day
   const dailyTransactions = useMemo(() => {
-    const now = new Date();
-    let startDate, endDate;
-
-    switch (timePeriod) {
-      case 'week':
-        startDate = startOfWeek(now);
-        endDate = endOfWeek(now);
-        break;
-      case 'year':
-        startDate = startOfYear(now);
-        endDate = endOfYear(now);
-        break;
-      case 'today':
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        endDate = new Date(now.setHours(23, 59, 59, 999));
-        break;
-      default: // month
-        startDate = startOfMonth(now);
-        endDate = endOfMonth(now);
-    }
-
+    let startDate = startOfMonth(selectedMonth);
+    let endDate = endOfMonth(selectedMonth);
     // Get all days in the selected period
     const daysInPeriod = eachDayOfInterval({ start: startDate, end: endDate });
-    
     // Create a map of days with their transactions
     const dailyMap = {};
     daysInPeriod.forEach(day => {
@@ -108,27 +107,22 @@ const Home = () => {
         transactions: []
       };
     });
-
     // Add transactions to their respective days
     filteredTransactions.forEach(transaction => {
       const date = new Date(transaction.date);
       const dayKey = format(date, 'yyyy-MM-dd');
-      
       if (dailyMap[dayKey]) {
         dailyMap[dayKey].transactions.push(transaction);
-        
         if (transaction.type === 'income') {
           dailyMap[dayKey].income += Number(transaction.amount);
         } else {
           dailyMap[dayKey].expense += Number(transaction.amount);
         }
-        
         dailyMap[dayKey].balance = dailyMap[dayKey].income - dailyMap[dayKey].expense;
       }
     });
-
     return Object.values(dailyMap);
-  }, [filteredTransactions, timePeriod]);
+  }, [filteredTransactions, selectedMonth]);
 
   const statistics = useMemo(() => {
     try {
@@ -182,51 +176,23 @@ const Home = () => {
     }
   }, [dailyTransactions]);
 
-  const handleTimePeriodChange = (event, newPeriod) => {
-    if (newPeriod !== null) {
-      setTimePeriod(newPeriod);
-    }
+  const handleGenerateReport = () => {
+    setOpenReportMonthDialog(true);
   };
 
-  const handleGenerateReport = async (type) => {
+  const handleSaveTransaction = async (transaction) => {
     try {
-      setLoading(true);
-      setError(null);
-      
-      // Prepare data for the report
-      const reportData = {
-        transactions: filteredTransactions,
-        statistics: {
-          ...statistics,
-          period: timePeriod,
-          startDate: format(new Date(), 'MMMM yyyy'),
-        },
-        dailyData: dailyTransactions,
-      };
-      
-      // Log the data being sent to the PDF generator for debugging
-      console.log('Generating report with data:', reportData);
-      
-      await generatePDF(reportData, type);
-      setSuccess(`${type === 'monthly' ? 'Monthly' : 'Insights'} report generated successfully!`);
+      if (editTransaction && editTransaction.id) {
+        await dispatch(updateTransactionAsync({ id: editTransaction.id, transaction }));
+        setSuccess('Transaction updated successfully!');
+      } else {
+        await dispatch(addTransactionAsync(transaction));
+        setSuccess('Transaction added successfully!');
+      }
+      setIsAddModalOpen(false);
+      setEditTransaction(null);
     } catch (err) {
-      console.error('Error generating PDF:', err);
-      setError(`Failed to generate ${type} report: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddTransaction = (transaction) => {
-    try {
-      dispatch(addTransaction({
-        ...transaction,
-        id: Date.now(),
-      }));
-      setSuccess('Transaction added successfully!');
-    } catch (err) {
-      console.error('Error adding transaction:', err);
-      setError('Failed to add transaction. Please try again.');
+      setError('Failed to save transaction. Please try again.');
     }
   };
 
@@ -256,35 +222,192 @@ const Home = () => {
     </Card>
   );
 
+  // Update the groupedTransactions calculation
+  const groupedTransactions = useMemo(() => {
+    // Sort all transactions by date ascending for cumulative sum calculation
+    const sorted = [...filteredTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+    let cumulative = 0;
+    const dateMap = {};
+    
+    sorted.forEach(txn => {
+      const dayKey = format(new Date(txn.date), 'yyyy-MM-dd');
+      if (!dateMap[dayKey]) {
+        dateMap[dayKey] = {
+          date: dayKey,
+          transactions: [],
+          dayIncome: 0,
+          dayExpense: 0
+        };
+      }
+      const amount = txn.type === 'income' ? Number(txn.amount) : -Number(txn.amount);
+      if (txn.type === 'income') {
+        dateMap[dayKey].dayIncome += Number(txn.amount);
+      } else {
+        dateMap[dayKey].dayExpense += Number(txn.amount);
+      }
+      cumulative += amount;
+      // Attach the cumulative sum to the transaction itself
+      dateMap[dayKey].transactions.push({ ...txn, cumulativeSum: cumulative });
+    });
+    
+    // Convert to array and sort by date descending for display
+    return Object.values(dateMap).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [filteredTransactions]);
+
+  const renderInsightContent = () => {
+    switch (selectedInsight) {
+      case 'category-breakdown':
+        const categoryExpenses = filteredTransactions
+          .filter(t => t.type === 'expense')
+          .reduce((acc, t) => {
+            acc[t.category] = (acc[t.category] || 0) + Number(t.amount);
+            return acc;
+          }, {});
+        
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom>Category-wise Expenses</Typography>
+            {Object.entries(categoryExpenses).map(([category, amount]) => (
+              <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography>{category}</Typography>
+                <Typography>₹{amount.toLocaleString('en-IN')}</Typography>
+              </Box>
+            ))}
+          </Box>
+        );
+
+      case 'top-categories':
+        const topCategories = Object.entries(
+          filteredTransactions
+            .filter(t => t.type === 'expense')
+            .reduce((acc, t) => {
+              acc[t.category] = (acc[t.category] || 0) + Number(t.amount);
+              return acc;
+            }, {})
+        )
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 3);
+
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom>Top Spending Categories</Typography>
+            {topCategories.map(([category, amount], index) => (
+              <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography>{index + 1}. {category}</Typography>
+                <Typography>₹{amount.toLocaleString('en-IN')}</Typography>
+              </Box>
+            ))}
+          </Box>
+        );
+
+      case 'savings-analysis':
+        const totalIncome = filteredTransactions
+          .filter(t => t.type === 'income')
+          .reduce((sum, t) => sum + Number(t.amount), 0);
+        const totalExpenses = filteredTransactions
+          .filter(t => t.type === 'expense')
+          .reduce((sum, t) => sum + Number(t.amount), 0);
+        const savings = totalIncome - totalExpenses;
+        const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0;
+
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom>Savings Analysis</Typography>
+            <Typography>Savings Rate: {savingsRate.toFixed(2)}%</Typography>
+            <Typography>Total Savings: ₹{savings.toLocaleString('en-IN')}</Typography>
+            <Typography>Income: ₹{totalIncome.toLocaleString('en-IN')}</Typography>
+            <Typography>Expenses: ₹{totalExpenses.toLocaleString('en-IN')}</Typography>
+          </Box>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // Add ReportMonthDialog component
+  const ReportMonthDialog = ({ open, onClose }) => (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Select Month for Report</DialogTitle>
+      <DialogContent>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <DatePicker
+            views={["year", "month"]}
+            label="Select Month"
+            minDate={new Date('2000-01-01')}
+            maxDate={new Date('2100-12-31')}
+            value={selectedReportMonth}
+            onChange={setSelectedReportMonth}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                sx={{ mt: 2 }}
+              />
+            )}
+          />
+        </LocalizationProvider>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button 
+          onClick={async () => {
+            try {
+              setLoading(true);
+              const startDate = startOfMonth(selectedReportMonth);
+              const endDate = endOfMonth(selectedReportMonth);
+              const transactions = await fetchTransactionsByDateRange(auth.currentUser.uid, startDate, endDate);
+              const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
+              setReportTransactions(txs);
+              const doc = generateMonthlyReport(txs, selectedReportMonth);
+              doc.save(`financial_monthly_report_${format(selectedReportMonth, 'yyyy-MM')}.pdf`);
+              setSuccess('Monthly report generated successfully!');
+              onClose();
+            } catch (err) {
+              console.error('Error generating report:', err);
+              setError(`Failed to generate report: ${err.message}`);
+            } finally {
+              setLoading(false);
+            }
+          }} 
+          color="primary" 
+          variant="contained"
+        >
+          Generate Report
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
   return (
     <Box sx={{ p: isMobile ? 2 : 3, pb: isMobile ? 10 : 3 }}>
-      <Typography variant="h4" gutterBottom>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
         Welcome to COMMON MAN
       </Typography>
 
-      <Box sx={{ mb: 3 }}>
-        <ToggleButtonGroup
-          value={timePeriod}
-          exclusive
-          onChange={handleTimePeriodChange}
-          aria-label="time period"
-          size={isMobile ? "small" : "medium"}
-          sx={{ width: isMobile ? '100%' : 'auto' }}
-        >
-          <ToggleButton value="today" aria-label="today">
-            Today
-          </ToggleButton>
-          <ToggleButton value="week" aria-label="this week">
-            This Week
-          </ToggleButton>
-          <ToggleButton value="month" aria-label="this month">
-            This Month
-          </ToggleButton>
-          <ToggleButton value="year" aria-label="this year">
-            This Year
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
+        <DatePicker
+          views={["year", "month"]}
+          label="Select Month"
+          minDate={new Date('2000-01-01')}
+          maxDate={new Date('2100-12-31')}
+          value={selectedMonth}
+          onChange={setSelectedMonth}
+          renderInput={(params) => (
+            <TextField 
+              {...params} 
+              sx={{ 
+                mb: 3,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: 'background.paper',
+                }
+              }} 
+              fullWidth={isMobile} 
+            />
+          )}
+        />
+      </LocalizationProvider>
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>
@@ -293,7 +416,7 @@ const Home = () => {
             value={statistics.income}
             icon={<TrendingUpIcon color="primary" />}
             color="primary"
-            subtitle={format(new Date(), 'MMMM yyyy')}
+            subtitle={format(selectedMonth, 'MMMM yyyy')}
           />
         </Grid>
         <Grid item xs={12} md={4}>
@@ -302,7 +425,7 @@ const Home = () => {
             value={statistics.expenses}
             icon={<TrendingDownIcon color="error" />}
             color="error"
-            subtitle={`${statistics.daysWithTransactions} days with transactions`}
+            subtitle={`${filteredTransactions.length} transactions`}
           />
         </Grid>
         <Grid item xs={12} md={4}>
@@ -316,88 +439,163 @@ const Home = () => {
         </Grid>
       </Grid>
 
-      <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
-        Daily Expenditure Statistics
-      </Typography>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Minimum Daily Expenditure"
-            value={statistics.minDailyExpense}
-            icon={<TrendingDownIcon color="info" />}
-            color="info.main"
-            subtitle="Lowest spending day"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Maximum Daily Expenditure"
-            value={statistics.maxDailyExpense}
-            icon={<TrendingUpIcon color="warning" />}
-            color="warning.main"
-            subtitle="Highest spending day"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Average Daily Expenditure"
-            value={statistics.avgDailyExpense}
-            icon={<EqualizerIcon color="secondary" />}
-            color="secondary.main"
-            subtitle={`Over ${statistics.daysWithTransactions} days`}
-          />
-        </Grid>
-      </Grid>
-
       <Box sx={{ mt: 4, mb: 3 }}>
-        <Typography variant="h5" gutterBottom>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           Quick Actions
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<CalendarIcon />}
-              onClick={() => navigate('/daily-logs')}
-            >
-              View Daily Activity
-            </Button>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<InsightsIcon />}
-              onClick={() => navigate('/insights')}
-            >
-              View Insights
-            </Button>
-          </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid item xs={12}>
             <Button
               fullWidth
               variant="outlined"
               startIcon={loading ? <CircularProgress size={24} /> : <PdfIcon />}
-              onClick={() => handleGenerateReport('monthly')}
+              onClick={handleGenerateReport}
               disabled={loading}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                py: 1.5
+              }}
             >
               Download Monthly Report
             </Button>
           </Grid>
-          <Grid item xs={12} sm={6}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={loading ? <CircularProgress size={24} /> : <PdfIcon />}
-              onClick={() => handleGenerateReport('insights')}
-              disabled={loading}
-            >
-              Download Insights
-            </Button>
-          </Grid>
         </Grid>
+      </Box>
+
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+          Transaction History
+        </Typography>
+        {isMobile ? (
+          // Mobile: Card/List layout
+          <Box>
+            {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
+              <Box key={date} sx={{ mb: 2, p: 2, borderRadius: 2, backgroundColor: 'background.paper', boxShadow: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{format(new Date(date), 'dd MMM yyyy')}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Income: ₹{dayIncome.toLocaleString('en-IN')} | Expense: ₹{dayExpense.toLocaleString('en-IN')}
+                </Typography>
+                {transactions.map((txn) => (
+                  <Box key={txn.id} sx={{ mt: 1, p: 1, borderRadius: 1, backgroundColor: 'action.hover', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2">{format(new Date(txn.date), 'HH:mm')}</Typography>
+                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>{txn.type}</Typography>
+                      <Typography>{txn.category}</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>
+                        ₹{Number(txn.amount).toLocaleString('en-IN')}
+                      </Typography>
+                      <Box>
+                        <Button size="small" onClick={() => { setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', mr: 1 }}>
+                          <span role="img" aria-label="edit">✏️</span>
+                        </Button>
+                        <Button size="small" color="error" onClick={() => { setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto' }}>
+                          <span role="img" aria-label="delete">🗑️</span>
+                        </Button>
+                      </Box>
+                    </Box>
+                    {txn.description && <Typography variant="caption" color="text.secondary">{txn.description}</Typography>}
+                  </Box>
+                ))}
+              </Box>
+            ))}
+          </Box>
+        ) : (
+          // Desktop: Table layout
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>Cumulative Balance</TableCell>
+                <TableCell>Time</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Category</TableCell>
+                <TableCell>Amount</TableCell>
+                <TableCell>Description</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
+                transactions.map((txn, idx) => (
+                  <TableRow 
+                    key={txn.id}
+                    sx={{
+                      '&:nth-of-type(odd)': { backgroundColor: 'action.hover' },
+                      '&:hover': { backgroundColor: 'action.selected' }
+                    }}
+                  >
+                    {idx === 0 && (
+                      <TableCell rowSpan={transactions.length}>
+                        <Box>
+                          <Typography variant="subtitle2">
+                            {format(new Date(date), 'dd MMM yyyy')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Income: ₹{dayIncome.toLocaleString('en-IN')}
+                          </Typography>
+                          <br />
+                          <Typography variant="caption" color="text.secondary">
+                            Expense: ₹{dayExpense.toLocaleString('en-IN')}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                    )}
+                    <TableCell sx={{ color: txn.cumulativeSum >= 0 ? 'success.main' : 'error.main', fontWeight: 'bold' }}>
+                      ₹{txn.cumulativeSum.toLocaleString('en-IN')}
+                    </TableCell>
+                    <TableCell>{format(new Date(txn.date), 'HH:mm')}</TableCell>
+                    <TableCell>
+                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>
+                        {txn.type}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{txn.category}</TableCell>
+                    <TableCell>
+                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>
+                        ₹{Number(txn.amount).toLocaleString('en-IN')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{txn.description}</TableCell>
+                    <TableCell>
+                      <Button size="small" onClick={() => { setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', mr: 1 }}>
+                        <span role="img" aria-label="edit">✏️</span>
+                      </Button>
+                      <Button size="small" color="error" onClick={() => { setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto' }}>
+                        <span role="img" aria-label="delete">🗑️</span>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Box>
+
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+          Detailed Insights
+        </Typography>
+        <FormControl fullWidth>
+          <InputLabel>Select Insight Type</InputLabel>
+          <Select
+            value={selectedInsight}
+            label="Select Insight Type"
+            onChange={(e) => setSelectedInsight(e.target.value)}
+            sx={{
+              borderRadius: 2,
+              backgroundColor: 'background.paper',
+            }}
+          >
+            <MenuItem value="category-breakdown">Category-wise Expense Breakdown</MenuItem>
+            <MenuItem value="top-categories">Top Spending Categories</MenuItem>
+            <MenuItem value="savings-analysis">Savings Analysis</MenuItem>
+          </Select>
+        </FormControl>
+        {renderInsightContent()}
       </Box>
 
       <Fab
@@ -415,8 +613,9 @@ const Home = () => {
 
       <AddTransactionModal
         open={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSave={handleAddTransaction}
+        onClose={() => { setIsAddModalOpen(false); setEditTransaction(null); }}
+        onSave={handleSaveTransaction}
+        initialData={editTransaction}
       />
 
       <Snackbar
@@ -433,6 +632,36 @@ const Home = () => {
           {error || success}
         </Alert>
       </Snackbar>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Transaction</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this transaction? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={async () => {
+            if (transactionToDelete) {
+              await dispatch(deleteTransactionAsync(transactionToDelete.id));
+            }
+            setDeleteDialogOpen(false);
+            setTransactionToDelete(null);
+          }} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add the ReportMonthDialog to the JSX */}
+      <ReportMonthDialog
+        open={openReportMonthDialog}
+        onClose={() => setOpenReportMonthDialog(false)}
+      />
     </Box>
   );
 };

@@ -27,6 +27,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { Close as CloseIcon } from '@mui/icons-material';
+import { removeUndefined } from '../utils/cleanObject';
 
 const expenseCategories = {
   Milk: [],
@@ -53,7 +54,7 @@ const expenseCategories = {
 
 const incomeCategories = ['Salary', 'Others'];
 
-const AddTransactionModal = ({ open, onClose, onSave }) => {
+const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [transactionType, setTransactionType] = useState('expense');
@@ -67,16 +68,27 @@ const AddTransactionModal = ({ open, onClose, onSave }) => {
 
   useEffect(() => {
     if (open) {
-      setTransactionType('expense');
-      setCategory('');
-      setSubCategory('');
-      setAmount('');
-      setDescription('');
-      setDate(new Date());
-      setOtherCategory('');
-      setErrors({});
+      if (initialData) {
+        setTransactionType(initialData.type || 'expense');
+        setCategory(initialData.category || '');
+        setSubCategory(initialData.subCategory || '');
+        setAmount(initialData.amount ? String(initialData.amount) : '');
+        setDescription(initialData.description || '');
+        setDate(initialData.date ? new Date(initialData.date) : new Date());
+        setOtherCategory('');
+        setErrors({});
+      } else {
+        setTransactionType('expense');
+        setCategory('');
+        setSubCategory('');
+        setAmount('');
+        setDescription('');
+        setDate(new Date());
+        setOtherCategory('');
+        setErrors({});
+      }
     }
-  }, [open]);
+  }, [open, initialData]);
 
   const validateForm = () => {
     const newErrors = {};
@@ -103,14 +115,15 @@ const AddTransactionModal = ({ open, onClose, onSave }) => {
 
   const handleSave = () => {
     if (validateForm()) {
-      const transaction = {
+      const transaction = removeUndefined({
+        id: initialData && initialData.id ? initialData.id : undefined,
         type: transactionType,
         category: category === 'Others' ? otherCategory : category,
         subCategory: subCategory || undefined,
         amount: parseFloat(amount),
         description: description || undefined,
         date: date.toISOString(),
-      };
+      });
       onSave(transaction);
       onClose();
     }
