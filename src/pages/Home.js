@@ -474,7 +474,8 @@ const Home = () => {
               <Box key={date} sx={{ mb: 2, p: 2, borderRadius: 2, backgroundColor: 'background.paper', boxShadow: 1 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{format(new Date(date), 'dd MMM yyyy')}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Income: ₹{dayIncome.toLocaleString('en-IN')} | Expense: ₹{dayExpense.toLocaleString('en-IN')}
+                  <Box component="span" sx={{ color: 'success.main', fontWeight: 600 }}>Income: ₹{dayIncome.toLocaleString('en-IN')}</Box> |
+                  <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
                 </Typography>
                 {transactions.map((txn) => (
                   <Box key={txn.id} sx={{ mt: 1, p: 1, borderRadius: 1, backgroundColor: 'action.hover', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -534,11 +535,8 @@ const Home = () => {
                             {format(new Date(date), 'dd MMM yyyy')}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            Income: ₹{dayIncome.toLocaleString('en-IN')}
-                          </Typography>
-                          <br />
-                          <Typography variant="caption" color="text.secondary">
-                            Expense: ₹{dayExpense.toLocaleString('en-IN')}
+                            <Box component="span" sx={{ color: 'success.main', fontWeight: 600 }}>Income: ₹{dayIncome.toLocaleString('en-IN')}</Box> |
+                            <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
                           </Typography>
                         </Box>
                       </TableCell>
