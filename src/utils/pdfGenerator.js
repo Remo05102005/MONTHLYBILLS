@@ -193,22 +193,22 @@ export const generatePDF = (data, type = 'monthly') => {
     };
     
     // Add header with logo and title
-    doc.setFillColor(41, 128, 185);
+    doc.setFillColor(52, 73, 94);
     doc.rect(0, 0, pageWidth, 40, 'F');
     
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(24);
-    doc.text('Common Man', pageWidth / 2, 15, { align: 'center' });
+    doc.text('PROFESSIONAL FINANCIAL REPORT', pageWidth / 2, 15, { align: 'center' });
     
     doc.setFontSize(14);
-    doc.text('Financial Management System', pageWidth / 2, 25, { align: 'center' });
+    doc.text('Certified Financial Analysis & Insights', pageWidth / 2, 25, { align: 'center' });
     
     // Add report title and date
     doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(20);
-    const title = type === 'monthly' ? 'Monthly Financial Report' : 'Financial Insights Report';
+    const title = type === 'monthly' ? 'Monthly Financial Analysis Report' : 'Financial Insights & Recommendations';
     doc.text(title, pageWidth / 2, 55, { align: 'center' });
     
     doc.setFont('helvetica', 'normal');
@@ -342,7 +342,7 @@ export const generatePDF = (data, type = 'monthly') => {
       const categoryExpenses = {};
       data.transactions.forEach(transaction => {
         if (transaction.type === 'expense') {
-          const category = transaction.category || 'Uncategorized';
+          const category = transaction.subCategory ? `${transaction.category} - ${transaction.subCategory}` : (transaction.category || 'Uncategorized');
           categoryExpenses[category] = (categoryExpenses[category] || 0) + Number(transaction.amount);
         }
       });
@@ -735,70 +735,171 @@ export const generatePDF = (data, type = 'monthly') => {
       }
     }
     
-    // Add transactions table
-    if (data.transactions?.length > 0) {
-      currentY = addSectionTitle('Transaction Details', currentY);
-      
-      // Format transactions for table
-      const tableData = data.transactions
-        .map(t => {
-          try {
-            return [
-              safeFormatDate(t.date),
-              t.type === 'income' ? 'Income' : 'Expense',
-              t.category || 'Uncategorized',
-              `₹${(Number(t.amount) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-              t.description || '-'
-            ];
-          } catch (error) {
-            console.error('Error formatting transaction:', error);
-            return [
-              'Invalid Date',
-              t.type === 'income' ? 'Income' : 'Expense',
-              t.category || 'Uncategorized',
-              `₹${(Number(t.amount) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-              t.description || '-'
-            ];
-          }
-        })
-        .sort((a, b) => {
-          try {
-            const dateA = new Date(a[0]);
-            const dateB = new Date(b[0]);
-            return dateA - dateB;
-          } catch (e) {
-            return 0;
-          }
+          // Add Comprehensive Financial Analysis & Recommendations
+      if (data.transactions?.length > 0) {
+        currentY = addSectionTitle('Comprehensive Financial Analysis & Recommendations', currentY);
+        
+        // Calculate detailed insights
+        const totalIncome = data.statistics?.income || 0;
+        const totalExpense = data.statistics?.expenses || 0;
+        const savingsRate = data.statistics?.savingsRate || 0;
+        const avgDailyExpense = (totalExpense / (data.statistics?.daysWithTransactions || 1));
+        
+        // Transaction analysis
+        const incomeTransactions = data.transactions.filter(t => t.type === 'income');
+        const expenseTransactions = data.transactions.filter(t => t.type === 'expense');
+        const totalTransactions = data.transactions.length;
+        
+        // Category analysis
+        const categoryExpenses = {};
+        const categoryIncome = {};
+        expenseTransactions.forEach(t => {
+          categoryExpenses[t.category] = (categoryExpenses[t.category] || 0) + Number(t.amount);
         });
-      
-      doc.autoTable({
-        startY: currentY,
-        head: [['Date', 'Type', 'Category', 'Amount', 'Description']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [66, 139, 202],
-          textColor: [255, 255, 255],
-          fontSize: 12,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 10,
-          cellPadding: 5,
-          overflow: 'linebreak',
-        },
-        columnStyles: { 
-          3: { halign: 'right', cellWidth: 30 },
-          4: { cellWidth: 50 }
-        },
-        alternateRowStyles: {
-          fillColor: [245, 245, 245]
-        },
-        margin: { left: margin, right: margin }
-      });
-      
-      currentY = doc.lastAutoTable.finalY + 10;
-    }
+        incomeTransactions.forEach(t => {
+          categoryIncome[t.category] = (categoryIncome[t.category] || 0) + Number(t.amount);
+        });
+        
+        // Transaction size analysis
+        const expenseSizes = expenseTransactions.map(t => Number(t.amount)).sort((a, b) => a - b);
+        const incomeSizes = incomeTransactions.map(t => Number(t.amount)).sort((a, b) => a - b);
+        const avgExpense = expenseSizes.length > 0 ? expenseSizes.reduce((a, b) => a + b, 0) / expenseSizes.length : 0;
+        const avgIncome = incomeSizes.length > 0 ? incomeSizes.reduce((a, b) => a + b, 0) / incomeSizes.length : 0;
+        
+        // Generate comprehensive recommendations
+        const recommendations = [];
+        
+        if (savingsRate < 20) {
+          recommendations.push('• Consider increasing savings rate to at least 20% for better financial security');
+        }
+        
+        if (savingsRate < 0) {
+          recommendations.push('• Current spending exceeds income - immediate cost-cutting measures recommended');
+        }
+        
+        if (avgDailyExpense > totalIncome / 30 * 0.8) {
+          recommendations.push('• Daily expenses are high relative to income - review discretionary spending');
+        }
+        
+        if (data.statistics?.maxDailyExpense > totalIncome * 0.3) {
+          recommendations.push('• Large single-day expenses detected - consider spreading major purchases');
+        }
+        
+        // Category-specific recommendations
+        const topExpenseCategory = Object.entries(categoryExpenses).sort(([, a], [, b]) => b - a)[0];
+        if (topExpenseCategory && topExpenseCategory[1] > totalExpense * 0.4) {
+          recommendations.push(`• ${topExpenseCategory[0]} represents ${((topExpenseCategory[1] / totalExpense) * 100).toFixed(1)}% of expenses - consider optimization`);
+        }
+        
+        if (Object.keys(categoryIncome).length === 1) {
+          recommendations.push('• Income is concentrated in one source - consider diversifying income streams');
+        }
+        
+        if (recommendations.length === 0) {
+          recommendations.push('• Excellent financial management! Continue maintaining current spending patterns');
+          recommendations.push('• Consider increasing investments for long-term wealth building');
+          recommendations.push('• Explore additional income sources to accelerate savings');
+        }
+        
+        // Add recommendations
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(52, 73, 94);
+        doc.text('Key Recommendations:', margin, currentY);
+        currentY += 8;
+        
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(44, 62, 80);
+        recommendations.forEach((rec, index) => {
+          doc.text(rec, margin, currentY + (index * 6));
+        });
+        
+        currentY += recommendations.length * 6 + 15;
+        
+        // Add comprehensive financial health indicators
+        currentY = addSectionTitle('Comprehensive Financial Health Indicators', currentY);
+        
+        const indicators = [
+          ['Savings Rate', `${savingsRate.toFixed(1)}%`, savingsRate >= 20 ? 'Excellent' : savingsRate >= 10 ? 'Good' : 'Needs Improvement'],
+          ['Expense to Income Ratio', `${((totalExpense / totalIncome) * 100).toFixed(1)}%`, (totalExpense / totalIncome) <= 0.8 ? 'Healthy' : 'High'],
+          ['Average Daily Expense', `₹${avgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, avgDailyExpense <= totalIncome / 30 * 0.7 ? 'Controlled' : 'High'],
+          ['Transaction Frequency', `${(totalTransactions / (data.statistics?.daysWithTransactions || 1)).toFixed(1)} per day`, 'Normal'],
+          ['Average Expense Size', `₹${avgExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
+          ['Average Income Size', `₹${avgIncome.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
+          ['Income Sources', Object.keys(categoryIncome).length.toString(), Object.keys(categoryIncome).length > 1 ? 'Diversified' : 'Concentrated'],
+          ['Expense Categories', Object.keys(categoryExpenses).length.toString(), 'Active categories']
+        ];
+        
+        doc.autoTable({
+          startY: currentY,
+          head: [['Indicator', 'Value', 'Status']],
+          body: indicators,
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [52, 73, 94],
+            textColor: [255, 255, 255],
+            fontSize: 11,
+            fontStyle: 'bold'
+          },
+          styles: { 
+            fontSize: 10,
+            cellPadding: 5
+          },
+          columnStyles: { 
+            1: { halign: 'right' },
+            2: { halign: 'center' }
+          },
+          alternateRowStyles: {
+            fillColor: [248, 249, 250]
+          },
+          margin: { left: margin, right: margin }
+        });
+        
+        currentY = doc.lastAutoTable.finalY + 15;
+        
+        // Add category performance analysis
+        currentY = addSectionTitle('Category Performance Analysis', currentY);
+        
+        const categoryData = Object.entries(categoryExpenses)
+          .sort(([, a], [, b]) => b - a)
+          .map(([category, amount]) => [
+            category,
+            `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+            `${((amount / totalExpense) * 100).toFixed(1)}%`,
+            expenseTransactions.filter(t => t.category === category).length.toString()
+          ]);
+        
+        if (categoryData.length > 0) {
+          doc.autoTable({
+            startY: currentY,
+            head: [['Category', 'Amount', 'Percentage', 'Transactions']],
+            body: categoryData,
+            theme: 'grid',
+            headStyles: { 
+              fillColor: [231, 76, 60],
+              textColor: [255, 255, 255],
+              fontSize: 11,
+              fontStyle: 'bold'
+            },
+            styles: { 
+              fontSize: 9,
+              cellPadding: 4
+            },
+            columnStyles: { 
+              1: { halign: 'right' },
+              2: { halign: 'right' },
+              3: { halign: 'center' }
+            },
+            alternateRowStyles: {
+              fillColor: [248, 249, 250]
+            },
+            margin: { left: margin, right: margin }
+          });
+          
+          currentY = doc.lastAutoTable.finalY + 15;
+        }
+      }
     
     // Add footer
     const footerY = pageHeight - 20;
@@ -808,7 +909,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.setTextColor(100, 100, 100);
-    doc.text('Generated by Common Man Financial Management System', pageWidth / 2, footerY + 5, { align: 'center' });
+    doc.text('Generated by Professional Financial Analysis System', pageWidth / 2, footerY + 5, { align: 'center' });
     doc.text(`Page 1 of 1`, pageWidth - margin - 5, footerY + 5, { align: 'right' });
     
     // Save the PDF

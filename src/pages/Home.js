@@ -260,19 +260,25 @@ const Home = () => {
         const categoryExpenses = filteredTransactions
           .filter(t => t.type === 'expense')
           .reduce((acc, t) => {
-            acc[t.category] = (acc[t.category] || 0) + Number(t.amount);
+            const categoryKey = t.subCategory ? `${t.category} - ${t.subCategory}` : t.category;
+            acc[categoryKey] = (acc[categoryKey] || 0) + Number(t.amount);
             return acc;
           }, {});
         
         return (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="h6" gutterBottom>Category-wise Expenses</Typography>
-            {Object.entries(categoryExpenses).map(([category, amount]) => (
-              <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography>{category}</Typography>
-                <Typography>₹{amount.toLocaleString('en-IN')}</Typography>
-              </Box>
-            ))}
+            <Typography variant="h6" gutterBottom>Expense Category Analysis</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Detailed breakdown of expenses by category and subcategory
+            </Typography>
+            {Object.entries(categoryExpenses)
+              .sort(([, a], [, b]) => b - a)
+              .map(([category, amount]) => (
+                <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, p: 1, borderRadius: 1, backgroundColor: 'action.hover' }}>
+                  <Typography variant="body2">{category}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'medium' }}>₹{amount.toLocaleString('en-IN')}</Typography>
+                </Box>
+              ))}
           </Box>
         );
 
@@ -281,7 +287,8 @@ const Home = () => {
           filteredTransactions
             .filter(t => t.type === 'expense')
             .reduce((acc, t) => {
-              acc[t.category] = (acc[t.category] || 0) + Number(t.amount);
+              const categoryKey = t.subCategory ? `${t.category} - ${t.subCategory}` : t.category;
+              acc[categoryKey] = (acc[categoryKey] || 0) + Number(t.amount);
               return acc;
             }, {})
         )
@@ -290,11 +297,14 @@ const Home = () => {
 
         return (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="h6" gutterBottom>Top Spending Categories</Typography>
+            <Typography variant="h6" gutterBottom>Top Expense Categories</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Categories with highest expenditure for targeted cost optimization
+            </Typography>
             {topCategories.map(([category, amount], index) => (
-              <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography>{index + 1}. {category}</Typography>
-                <Typography>₹{amount.toLocaleString('en-IN')}</Typography>
+              <Box key={category} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, p: 1, borderRadius: 1, backgroundColor: 'action.hover' }}>
+                <Typography variant="body2">{index + 1}. {category}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>₹{amount.toLocaleString('en-IN')}</Typography>
               </Box>
             ))}
           </Box>
@@ -430,6 +440,15 @@ const Home = () => {
         </Grid>
         <Grid item xs={12} md={4}>
           <StatCard
+            title="Average Expenditure"
+            value={Math.round(statistics.avgDailyExpense)}
+            icon={<TrendingDownIcon color="warning" />}
+            color="warning.main"
+            subtitle="Per day"
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <StatCard
             title="Remaining Balance"
             value={statistics.savings}
             icon={<EqualizerIcon color={statistics.savings >= 0 ? 'success' : 'error'} />}
@@ -465,7 +484,7 @@ const Home = () => {
 
       <Box sx={{ mt: 4 }}>
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-          Transaction History
+          Financial Overview
         </Typography>
         {isMobile ? (
           // Mobile: Card/List layout
@@ -478,26 +497,58 @@ const Home = () => {
                   <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
                 </Typography>
                 {transactions.map((txn) => (
-                  <Box key={txn.id} sx={{ mt: 1, p: 1, borderRadius: 1, backgroundColor: 'action.hover', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2">{format(new Date(txn.date), 'HH:mm')}</Typography>
-                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>{txn.type}</Typography>
-                      <Typography>{txn.category}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>
-                        ₹{Number(txn.amount).toLocaleString('en-IN')}
+                  <Box
+                    key={txn.id}
+                    sx={{
+                      mb: 1.2,
+                      py: 0.6,
+                      px: 1.2,
+                      borderRadius: 2.5,
+                      backgroundColor: 'background.paper',
+                      boxShadow: 3,
+                      minWidth: 0,
+                      overflow: 'visible',
+                      position: 'relative',
+                      borderLeft: `4px solid ${txn.type === 'income' ? theme.palette.success.main : theme.palette.error.main}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 0.1,
+                    }}
+                  >
+                    {/* First line: Category/Subcategory */}
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: 'text.primary', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+                      {txn.subCategory ? `${txn.category} - ${txn.subCategory}` : txn.category}
+                    </Typography>
+                    {/* Second line: Amount (left) and Actions (right) */}
+                    <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', mt: 0.1 }}>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          color: txn.type === 'income' ? 'success.main' : 'error.main',
+                          fontWeight: 800,
+                          fontSize: 15,
+                          letterSpacing: 0.2,
+                          ml: 0.7,
+                        }}
+                      >
+                        {Math.round(Number(txn.amount)).toLocaleString('en-IN')}
                       </Typography>
-                      <Box>
-                        <Button size="small" onClick={() => { setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', mr: 1 }}>
+                      <Box sx={{ flex: 1 }} />
+                      <Box sx={{ display: 'flex', gap: 0.2 }}>
+                        <Button size="small" onClick={() => { setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
                           <span role="img" aria-label="edit">✏️</span>
                         </Button>
-                        <Button size="small" color="error" onClick={() => { setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto' }}>
+                        <Button size="small" color="error" onClick={() => { setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
                           <span role="img" aria-label="delete">🗑️</span>
                         </Button>
                       </Box>
                     </Box>
-                    {txn.description && <Typography variant="caption" color="text.secondary">{txn.description}</Typography>}
+                    {/* Optional: Third line for description, very small */}
+                    {txn.description && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.05, ml: 1.2, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {txn.description}
+                      </Typography>
+                    )}
                   </Box>
                 ))}
               </Box>
@@ -550,7 +601,9 @@ const Home = () => {
                         {txn.type}
                       </Typography>
                     </TableCell>
-                    <TableCell>{txn.category}</TableCell>
+                    <TableCell>
+                      {txn.subCategory ? `${txn.category} - ${txn.subCategory}` : txn.category}
+                    </TableCell>
                     <TableCell>
                       <Typography sx={{ color: txn.type === 'income' ? 'success.main' : 'error.main', fontWeight: 'medium' }}>
                         ₹{Number(txn.amount).toLocaleString('en-IN')}
@@ -575,7 +628,7 @@ const Home = () => {
 
       <Box sx={{ mt: 4 }}>
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-          Detailed Insights
+          Professional Financial Analysis
         </Typography>
         <FormControl fullWidth>
           <InputLabel>Select Insight Type</InputLabel>
@@ -588,9 +641,9 @@ const Home = () => {
               backgroundColor: 'background.paper',
             }}
           >
-            <MenuItem value="category-breakdown">Category-wise Expense Breakdown</MenuItem>
-            <MenuItem value="top-categories">Top Spending Categories</MenuItem>
-            <MenuItem value="savings-analysis">Savings Analysis</MenuItem>
+            <MenuItem value="category-breakdown">Expense Category Analysis</MenuItem>
+            <MenuItem value="top-categories">Top Expense Categories</MenuItem>
+            <MenuItem value="savings-analysis">Savings & Investment Analysis</MenuItem>
           </Select>
         </FormControl>
         {renderInsightContent()}

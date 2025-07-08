@@ -95,11 +95,9 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
     if (!category && !otherCategory) {
       newErrors.category = 'Please select a category';
     }
-    if (category === 'Petrol' && !subCategory) {
-      newErrors.subCategory = 'Please select a vehicle type';
-    }
-    if (category === 'Bills' && !subCategory) {
-      newErrors.subCategory = 'Please select a bill type';
+    // Check if category has subcategories and subcategory is required
+    if (expenseCategories[category] && expenseCategories[category].length > 0 && !subCategory) {
+      newErrors.subCategory = 'Please select a subcategory';
     }
     if (category === 'Others' && !otherCategory) {
       newErrors.otherCategory = 'Please specify the category';
@@ -222,13 +220,13 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
             />
           )}
 
-          {(category === 'Petrol' || category === 'Bills') && (
+          {expenseCategories[category] && expenseCategories[category].length > 0 && (
             <FormControl fullWidth error={!!errors.subCategory} sx={{ mt: 2 }}>
-              <InputLabel>Select Type</InputLabel>
+              <InputLabel>Select Subcategory</InputLabel>
               <Select
                 value={subCategory}
                 onChange={(e) => setSubCategory(e.target.value)}
-                label="Select Type"
+                label="Select Subcategory"
               >
                 {expenseCategories[category].map((subCat) => (
                   <MenuItem key={subCat} value={subCat}>
