@@ -923,6 +923,71 @@ export const generatePDF = (data, type = 'monthly') => {
   }
 };
 
+export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 20;
+  const contentWidth = pageWidth - (margin * 2);
+  let y = 20;
+
+  // Title
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text('Expense Category Analysis', pageWidth / 2, y, { align: 'center' });
+  y += 10;
+  if (periodLabel) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(12);
+    doc.text(periodLabel, pageWidth / 2, y, { align: 'center' });
+    y += 10;
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Generated on: ${format(new Date(), 'MMMM dd, yyyy')}`, pageWidth / 2, y, { align: 'center' });
+  y += 10;
+
+  // Calculate category expenses
+  const categoryExpenses = {};
+  let total = 0;
+  transactions.filter(t => t.type === 'expense').forEach(t => {
+    const key = t.subCategory ? `${t.category} - ${t.subCategory}` : t.category;
+    categoryExpenses[key] = (categoryExpenses[key] || 0) + Number(t.amount);
+    total += Number(t.amount);
+  });
+
+  // Table data
+  const tableData = Object.entries(categoryExpenses)
+    .sort(([, a], [, b]) => b - a)
+    .map(([cat, amt]) => [cat, Math.round(amt).toLocaleString('en-IN')]);
+
+  if (tableData.length > 0) {
+    doc.autoTable({
+      startY: y,
+      head: [['Category', 'Amount']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [66, 139, 202], textColor: [255, 255, 255], fontSize: 12, fontStyle: 'bold' },
+      styles: { fontSize: 11, cellPadding: 5 },
+      columnStyles: { 1: { halign: 'right' } },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      margin: { left: margin, right: margin }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  } else {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(12);
+    doc.text('No expense data available for this period.', pageWidth / 2, y, { align: 'center' });
+    y += 10;
+  }
+
+  // Total expenditure
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text(`Total Expenditure: ${Math.round(total).toLocaleString('en-IN')}`, pageWidth / 2, y, { align: 'center' });
+
+  return doc;
+};
+
 // Test function to generate a sample report
 export const testPDFGeneration = () => {
   const sampleData = {

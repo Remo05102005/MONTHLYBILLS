@@ -51,6 +51,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { generateCategoryAnalysisPDF } from '../utils/pdfGenerator';
 
 const Home = () => {
   const theme = useTheme();
@@ -476,7 +477,35 @@ const Home = () => {
                 py: 1.5
               }}
             >
-              Download Monthly Report
+              Monthly Report
+            </Button>
+          </Grid>
+          <Grid item xs={12}>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<PdfIcon />}
+              onClick={async () => {
+                try {
+                  setLoading(true);
+                  const periodLabel = format(selectedMonth, 'MMMM yyyy');
+                  const doc = generateCategoryAnalysisPDF(filteredTransactions, periodLabel);
+                  doc.save(`expense_category_analysis_${format(selectedMonth, 'yyyy-MM')}.pdf`);
+                  setSuccess('Expense Category Analysis PDF generated!');
+                } catch (err) {
+                  setError('Failed to generate category analysis PDF.');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                py: 1.5
+              }}
+            >
+              Expenditure List
             </Button>
           </Grid>
         </Grid>
