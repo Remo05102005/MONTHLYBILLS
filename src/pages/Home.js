@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -31,6 +31,12 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Divider,
+  Fade,
+  Chip,
+  Stack,
+  Tooltip,
+  Collapse,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -40,6 +46,7 @@ import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   Equalizer as EqualizerIcon,
+  Share as ShareIcon,
 } from '@mui/icons-material';
 import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync } from '../store/transactionSlice';
 import { fetchTransactionsByDateRange } from '../firebase/transactions';
@@ -52,6 +59,9 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { generateCategoryAnalysisPDF } from '../utils/pdfGenerator';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import html2canvas from 'html2canvas';
 
 const Home = () => {
   const theme = useTheme();
@@ -72,6 +82,10 @@ const Home = () => {
   const [selectedInsight, setSelectedInsight] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [showDescription, setShowDescription] = useState(false);
+  const shareRef = useRef();
 
   useEffect(() => {
     if (currentUser) {
@@ -390,6 +404,25 @@ const Home = () => {
     </Dialog>
   );
 
+  const handleShare = async () => {
+    if (!shareRef.current) return;
+    const canvas = await html2canvas(shareRef.current, { backgroundColor: null, useCORS: true });
+    canvas.toBlob(async (blob) => {
+      if (blob && navigator.clipboard) {
+        try {
+          await navigator.clipboard.write([
+            new window.ClipboardItem({ 'image/png': blob })
+          ]);
+          setSuccess('Image copied to clipboard!');
+        } catch (err) {
+          setError('Failed to copy image.');
+        }
+      } else {
+        setError('Clipboard not supported.');
+      }
+    });
+  };
+
   return (
     <Box sx={{ p: isMobile ? 2 : 3, pb: isMobile ? 10 : 3 }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
@@ -542,7 +575,9 @@ const Home = () => {
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 0.1,
+                      cursor: 'pointer',
                     }}
+                    onClick={() => { setSelectedTransaction(txn); setDetailsModalOpen(true); }}
                   >
                     {/* First line: Category/Subcategory */}
                     <Typography variant="body1" sx={{ fontWeight: 700, color: 'text.primary', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
@@ -564,10 +599,10 @@ const Home = () => {
                       </Typography>
                       <Box sx={{ flex: 1 }} />
                       <Box sx={{ display: 'flex', gap: 0.2 }}>
-                        <Button size="small" onClick={() => { setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
+                        <Button size="small" onClick={e => { e.stopPropagation(); setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
                           <span role="img" aria-label="edit">✏️</span>
                         </Button>
-                        <Button size="small" color="error" onClick={() => { setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
+                        <Button size="small" color="error" onClick={e => { e.stopPropagation(); setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
                           <span role="img" aria-label="delete">🗑️</span>
                         </Button>
                       </Box>
@@ -742,6 +777,113 @@ const Home = () => {
         open={openReportMonthDialog}
         onClose={() => setOpenReportMonthDialog(false)}
       />
+
+      {/* Transaction Details Modal */}
+      <Dialog
+        open={detailsModalOpen}
+        onClose={() => setDetailsModalOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        TransitionComponent={Fade}
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', boxShadow: 6 }, onClick: (e) => e.stopPropagation() }}
+        BackdropProps={{
+          onClick: (e) => {
+            // Only close if not clicking inside the dialog or on action buttons
+            if (e.target.classList.contains('MuiBackdrop-root')) {
+              setDetailsModalOpen(false);
+            }
+          },
+          style: { cursor: 'pointer' },
+        }}
+      >
+        {/* Accent bar */}
+        <Box sx={{ height: 6, bgcolor: selectedTransaction?.type === 'income' ? 'success.main' : 'error.main' }} />
+        <div
+          ref={shareRef}
+          style={{ background: 'white' }}
+          onClick={e => {
+            // If the click is on the dialog but not on Edit, Delete, or Share buttons, close the popup
+            const isActionBtn = e.target.closest('.popup-action-btn');
+            if (!isActionBtn) {
+              setDetailsModalOpen(false);
+            }
+          }}
+        >
+          <DialogTitle sx={{ textAlign: 'center', fontWeight: 700, fontSize: 22, mt: 1 }}>
+            Transaction Details
+            {selectedTransaction && (
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {selectedTransaction.category}
+                {selectedTransaction.subCategory && ` / ${selectedTransaction.subCategory}`}
+              </Typography>
+            )}
+          </DialogTitle>
+          <DialogContent sx={{ p: 3, bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+            {selectedTransaction && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', gap: 2 }}>
+                <Chip
+                  label={selectedTransaction.type.charAt(0).toUpperCase() + selectedTransaction.type.slice(1)}
+                  color={selectedTransaction.type === 'income' ? 'success' : 'error'}
+                  sx={{ fontWeight: 700, fontSize: 15, mb: 1 }}
+                />
+                <Box sx={{
+                  background: selectedTransaction.type === 'income'
+                    ? 'linear-gradient(90deg, #e0ffe0, #fff)'
+                    : 'linear-gradient(90deg, #ffe0e0, #fff)',
+                  borderRadius: 2,
+                  px: 2,
+                  py: 1,
+                  textAlign: 'center',
+                  minWidth: 120,
+                  boxShadow: 1,
+                  animation: 'pulse 1.2s infinite alternate',
+                  mb: 1.5,
+                }}>
+                  <Typography fontWeight={900} color={selectedTransaction.type === 'income' ? 'success.main' : 'error.main'} fontSize={28}>
+                    ₹{Number(selectedTransaction.amount).toLocaleString('en-IN')}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  {format(new Date(selectedTransaction.date), 'dd MMM yyyy, HH:mm')}
+                </Typography>
+                <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" sx={{ mb: 1 }}>
+                  <Chip label={selectedTransaction.category} variant="outlined" />
+                  {selectedTransaction.subCategory && <Chip label={selectedTransaction.subCategory} variant="outlined" color="default" />}
+                </Stack>
+                {selectedTransaction.description && (
+                  <Box sx={{ bgcolor: 'grey.100', borderRadius: 1, p: 2, mt: 1, width: '100%', maxWidth: 400, textAlign: 'center', boxSizing: 'border-box' }}>
+                    <Typography fontStyle="italic" color="text.secondary">{selectedTransaction.description}</Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
+          </DialogContent>
+        </div>
+        <DialogActions sx={{ p: 2, pt: 1, bgcolor: 'background.paper' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+            {/* Edit: leftmost */}
+            <Tooltip title="Edit">
+              <Fab size="small" color="primary" className="popup-action-btn" sx={{ ml: { xs: 0, sm: 2 } }} onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setEditTransaction(selectedTransaction); setIsAddModalOpen(true); }}>
+                <EditIcon />
+              </Fab>
+            </Tooltip>
+            {/* Delete: center */}
+            <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <Tooltip title="Delete">
+                <Fab size="small" color="error" className="popup-action-btn" onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setTransactionToDelete(selectedTransaction); setDeleteDialogOpen(true); }}>
+                  <DeleteIcon />
+                </Fab>
+              </Tooltip>
+            </Box>
+            {/* Share: rightmost */}
+            <Tooltip title="Share">
+              <Fab size="small" color="secondary" className="popup-action-btn" sx={{ mr: { xs: 0, sm: 2 } }} onClick={async e => { e.stopPropagation(); await handleShare(); }}>
+                <ShareIcon />
+              </Fab>
+            </Tooltip>
+          </Box>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
