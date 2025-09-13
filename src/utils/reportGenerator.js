@@ -1,13 +1,7 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { format, startOfMonth, endOfMonth, parseISO, isValid, isDate, eachDayOfInterval, getDay, getWeek, isWithinInterval } from 'date-fns';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from 'date-fns';
 
-const formatNumber = (num) => {
-  return new Intl.NumberFormat('en-IN', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2
-  }).format(num);
-};
 
 const formatInt = (num) => {
   return Math.round(Number(num)).toLocaleString('en-IN', { maximumFractionDigits: 0, minimumFractionDigits: 0 });
@@ -18,39 +12,75 @@ export const generateMonthlyReport = (transactions, month) => {
   const pageWidth = doc.internal.pageSize.width;
   const pageHeight = doc.internal.pageSize.height;
   const margin = 20;
-  const contentWidth = pageWidth - (2 * margin);
 
-  // --- First Page: Beautiful Cover ---
-  doc.setFillColor(52, 73, 94);
+  // Parse month parameter - handle both string and Date
+  let monthDate;
+  if (typeof month === 'string') {
+    // Try to parse the string as a date
+    monthDate = new Date(month);
+    if (isNaN(monthDate.getTime())) {
+      // If parsing fails, use current month
+      monthDate = new Date();
+    }
+  } else {
+    monthDate = month;
+  }
+
+  // --- First Page: Professional Cover ---
+  // Clean gradient background
+  doc.setFillColor(15, 23, 42); // Deep navy blue
   doc.rect(0, 0, pageWidth, pageHeight, 'F');
+  
+  // Add subtle pattern overlay with better spacing
+  doc.setFillColor(30, 41, 59); // Slightly lighter navy
+  for (let i = 0; i < pageWidth; i += 25) {
+    for (let j = 0; j < pageHeight; j += 25) {
+      if ((i + j) % 50 === 0) {
+        doc.rect(i, j, 2, 2, 'F');
+      }
+    }
+  }
+  
+  // Main title with proper spacing
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(48);
-  doc.text('COMMON MAN', pageWidth / 2, pageHeight / 2 - 10, { align: 'center' });
-  doc.setFontSize(18);
+  doc.setFontSize(38);
+  doc.text('FINANCIAL', pageWidth / 2, 120, { align: 'center' });
+  doc.setFontSize(32);
+  doc.text('ANALYSIS', pageWidth / 2, 155, { align: 'center' });
+  
+  // Elegant divider line
+  doc.setDrawColor(59, 130, 246); // Blue accent
+  doc.setLineWidth(3);
+  doc.line(pageWidth / 2 - 70, 175, pageWidth / 2 + 70, 175);
+  
+  // Subtitle with proper spacing
+  doc.setFontSize(16);
   doc.setFont('helvetica', 'normal');
-  doc.text('Personal Finance Report', pageWidth / 2, pageHeight / 2 + 15, { align: 'center' });
-  doc.setFontSize(12);
-  doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageWidth / 2, pageHeight / 2 + 30, { align: 'center' });
+  doc.text('Monthly Financial Report & Insights', pageWidth / 2, 200, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text(`Period: ${format(monthDate, 'MMMM yyyy')}`, pageWidth / 2, 220, { align: 'center' });
+  
+  // Generation info with proper spacing
+  doc.setFontSize(11);
+  doc.setTextColor(156, 163, 175); // Light gray
+  doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageWidth / 2, 250, { align: 'center' });
+  doc.text('Professional Financial Analysis & Insights', pageWidth / 2, 265, { align: 'center' });
+  
+  // Clean design without branding
+  
   doc.addPage();
 
-  // Header
-  doc.setFontSize(24);
-  doc.setTextColor(44, 62, 80);
-  doc.setFont('helvetica', 'bold');
-  doc.text('FINANCIAL ANALYSIS REPORT', pageWidth / 2, 25, { align: 'center' });
-  
-  // Subtitle
-  doc.setFontSize(14);
-  doc.setTextColor(127, 140, 141);
+  // Simple header with just period information
+  doc.setFontSize(12);
+  doc.setTextColor(100, 116, 139);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Period: ${format(month, 'MMMM yyyy')}`, pageWidth / 2, 35, { align: 'center' });
-  doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageWidth / 2, 42, { align: 'center' });
-  doc.text('Professional Financial Analysis & Insights', pageWidth / 2, 49, { align: 'center' });
+  doc.text(`Period: ${format(monthDate, 'MMMM yyyy')}`, 20, 20);
+  doc.text(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, pageWidth - 20, 20, { align: 'right' });
   
   // Filter transactions for the month
-  const monthStart = startOfMonth(month);
-  const monthEnd = endOfMonth(month);
+  const monthStart = startOfMonth(monthDate);
+  const monthEnd = endOfMonth(monthDate);
   const monthlyTransactions = transactions.filter(t => {
     const date = new Date(t.date);
     return date >= monthStart && date <= monthEnd;
@@ -125,8 +155,15 @@ export const generateMonthlyReport = (transactions, month) => {
   // Day of week analysis
   const dayOfWeekExpenses = [0, 0, 0, 0, 0, 0, 0]; // Sunday to Saturday
   const dayOfWeekIncome = [0, 0, 0, 0, 0, 0, 0];
-  const dayOfWeekCount = [0, 0, 0, 0, 0, 0, 0];
+  const dayOfWeekCount = [0, 0, 0, 0, 0, 0, 0]; // Count of actual days (Mondays, Tuesdays, etc.)
   
+  // Count actual days of each day of week in the month
+  daysInMonth.forEach(day => {
+    const dayOfWeek = getDay(day);
+    dayOfWeekCount[dayOfWeek]++;
+  });
+  
+  // Sum expenses and income by day of week
   monthlyTransactions.forEach(t => {
     const day = new Date(t.date);
     const dayOfWeek = getDay(day);
@@ -135,17 +172,9 @@ export const generateMonthlyReport = (transactions, month) => {
     } else {
       dayOfWeekExpenses[dayOfWeek] += Number(t.amount);
     }
-    dayOfWeekCount[dayOfWeek]++;
   });
   
-  // Transaction size analysis
-  const expenseSizes = expenseTransactions.map(t => Number(t.amount)).sort((a, b) => a - b);
-  const incomeSizes = incomeTransactions.map(t => Number(t.amount)).sort((a, b) => a - b);
-  
-  const avgExpense = expenseSizes.length > 0 ? expenseSizes.reduce((a, b) => a + b, 0) / expenseSizes.length : 0;
-  const avgIncome = incomeSizes.length > 0 ? incomeSizes.reduce((a, b) => a + b, 0) / incomeSizes.length : 0;
-  const medianExpense = expenseSizes.length > 0 ? expenseSizes[Math.floor(expenseSizes.length / 2)] : 0;
-  const medianIncome = incomeSizes.length > 0 ? incomeSizes[Math.floor(incomeSizes.length / 2)] : 0;
+  // Removed unused transaction size analysis variables
   
   // Spending patterns
   const daysWithExpenses = Object.values(dailyExpenses).filter(exp => exp > 0).length;
@@ -153,7 +182,7 @@ export const generateMonthlyReport = (transactions, month) => {
   const highestExpenseDay = Object.entries(dailyExpenses).reduce((max, [day, amount]) => amount > max.amount ? { day, amount } : max, { day: '', amount: 0 });
   const highestIncomeDay = Object.entries(dailyIncome).reduce((max, [day, amount]) => amount > max.amount ? { day, amount } : max, { day: '', amount: 0 });
   
-  let currentY = 60;
+  let currentY = 30; // Simple header, start content earlier
   
   // Executive Summary Section
   currentY = addSectionTitle('EXECUTIVE SUMMARY', currentY);
@@ -164,120 +193,147 @@ export const generateMonthlyReport = (transactions, month) => {
     ['Net Savings', formatInt(netSavings)],
     ['Average Expenditure', formatInt(avgExpenditure)],
     ['Savings Rate (%)', savingsRate.toFixed(1)],
-    ['Total Transactions', totalTransactions.toString()],
-    ['Income Transactions', incomeTransactions.length.toString()],
-    ['Expense Transactions', expenseTransactions.length.toString()],
   ];
   
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [['Metric', 'Value']],
     body: summaryData,
     theme: 'grid',
     headStyles: { 
-      fillColor: [52, 73, 94],
+      fillColor: [15, 23, 42], // Deep navy
       textColor: [255, 255, 255],
       fontSize: 12,
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      halign: 'center'
     },
     styles: { 
       fontSize: 11,
-      cellPadding: 6
+      cellPadding: 8,
+      textColor: [15, 23, 42] // Deep navy text
     },
     columnStyles: { 
-      1: { halign: 'right', fontStyle: 'bold' }
+      0: { halign: 'left', fontStyle: 'bold' },
+      1: { halign: 'right', fontStyle: 'bold', textColor: [59, 130, 246] } // Blue for values
     },
     alternateRowStyles: {
-      fillColor: [248, 249, 250]
+      fillColor: [248, 250, 252] // Light gray
     },
-    margin: { left: margin, right: margin }
+    margin: { left: margin, right: margin },
+    tableLineColor: [226, 232, 240], // Light border
+    tableLineWidth: 0.5
   });
   
   currentY = doc.lastAutoTable.finalY + 15;
   
-  // Detailed Financial Analysis Section
-  currentY = addSectionTitle('DETAILED FINANCIAL ANALYSIS', currentY);
+  // Day-wise Transaction Details Table
+  currentY = addSectionTitle('DAILY TRANSACTION DETAILS', currentY);
   
-  // Category-wise expense breakdown
-  const sortedCategories = Object.entries(categoryExpenses)
-    .sort(([, a], [, b]) => b - a);
+  // Prepare transaction data sorted by date
+  const sortedTransactions = monthlyTransactions.sort((a, b) => {
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    return dateA - dateB;
+  });
   
-  if (sortedCategories.length > 0) {
-    const categoryData = sortedCategories.map(([category, amount]) => [
-      category,
-      formatInt(amount),
-      `${((amount / totalExpense) * 100).toFixed(1)}`,
-      expenseTransactions.filter(t => t.category === category).length.toString()
-    ]);
+  // Group transactions by date
+  const transactionsByDate = {};
+  sortedTransactions.forEach(transaction => {
+    const dateStr = transaction.date;
+    if (!transactionsByDate[dateStr]) {
+      transactionsByDate[dateStr] = [];
+    }
+    transactionsByDate[dateStr].push(transaction);
+  });
+  
+  // Create table data with rowspan for dates and days
+  const tableData = [];
+  // Removed unused dayShortNames variable
+  
+  Object.entries(transactionsByDate).forEach(([dateStr, transactions]) => {
+    const date = new Date(dateStr);
+    // Removed unused dayName variable
+    const formattedDate = format(date, 'dd MMM yyyy');
     
-    doc.autoTable({
-      startY: currentY,
-      head: [['Expense Category', 'Amount', 'Percent', 'Transactions']],
-      body: categoryData,
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [52, 73, 94],
-        textColor: [255, 255, 255],
-        fontSize: 11,
-        fontStyle: 'bold'
-      },
-      styles: { 
-        fontSize: 10,
-        cellPadding: 6
-      },
-      columnStyles: { 
-        1: { halign: 'right' },
-        2: { halign: 'right' },
-        3: { halign: 'center' }
-      },
-      alternateRowStyles: {
-        fillColor: [248, 249, 250]
-      },
-      margin: { left: margin, right: margin }
+    transactions.forEach((transaction, index) => {
+      const category = transaction.subCategory ? `${transaction.category} - ${transaction.subCategory}` : transaction.category;
+      const amount = formatInt(transaction.amount);
+      const type = transaction.type;
+      
+      if (index === 0) {
+        // First transaction of the day - include date with rowspan
+        tableData.push([
+          { content: formattedDate, rowSpan: transactions.length },
+          category,
+          transaction.description || '',
+          { content: amount, styles: { textColor: type === 'income' ? [46, 204, 113] : [0, 0, 0] } }
+        ]);
+      } else {
+        // Subsequent transactions of the same day - no date column
+        tableData.push([
+          category,
+          transaction.description || '',
+          { content: amount, styles: { textColor: type === 'income' ? [46, 204, 113] : [0, 0, 0] } }
+        ]);
+      }
     });
-    
-    currentY = doc.lastAutoTable.finalY + 15;
+  });
+  
+  // Add table using grid theme for automatic width fitting
+  autoTable(doc, {
+    startY: currentY,
+    head: [['Date', 'Category', 'Description', 'Amount']],
+    body: tableData,
+    theme: 'grid',
+    headStyles: { 
+      fillColor: [15, 23, 42], // Deep navy
+      textColor: [255, 255, 255],
+      fontSize: 10,
+      fontStyle: 'bold',
+      halign: 'center'
+    },
+    styles: { 
+      fontSize: 8,
+      cellPadding: 6,
+      overflow: 'linebreak',
+      cellWidth: 'wrap',
+      textColor: [15, 23, 42] // Deep navy text
+    },
+    columnStyles: { 
+      0: { halign: 'center', textColor: [15, 23, 42], fontStyle: 'bold' },
+      1: { halign: 'left', textColor: [15, 23, 42] },
+      2: { halign: 'left', textColor: [71, 85, 105] }, // Medium gray for descriptions
+      3: { halign: 'right', textColor: [15, 23, 42], fontStyle: 'bold' }
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252] // Light gray
+    },
+    margin: { left: margin, right: margin },
+    tableLineColor: [226, 232, 240], // Light border
+    tableLineWidth: 0.5,
+    didParseCell: function(data) {
+      // Handle rowspan for date column
+      if (data.column.index === 0) {
+        if (data.cell.raw && data.cell.raw.rowSpan) {
+          data.cell.rowSpan = data.cell.raw.rowSpan;
+        }
+      }
+      // Handle text color for amount column
+      if (data.column.index === 3 && data.cell.raw && data.cell.raw.styles) {
+        data.cell.styles.textColor = data.cell.raw.styles.textColor;
+      }
+    }
+  });
+  
+  currentY = doc.lastAutoTable.finalY + 15;
+  
+  // Add page break if needed to prevent cutting
+  if (currentY > 250) {
+    doc.addPage();
+    currentY = 30; // Starting position for new pages
   }
   
-  // Subcategory detailed breakdown
-  const sortedSubcategories = Object.entries(subcategoryExpenses)
-    .sort(([, a], [, b]) => b - a) // Ensure descending order
-    .slice(0, 15); // Top 15 subcategories
-  
-  if (sortedSubcategories.length > 0) {
-    const subcategoryData = sortedSubcategories.map(([subcategory, amount]) => [
-      subcategory,
-      formatInt(amount),
-      `${((amount / totalExpense) * 100).toFixed(1)}`
-    ]);
-    
-    doc.autoTable({
-      startY: currentY,
-      head: [['Detailed Subcategory', 'Amount', 'Percent']],
-      body: subcategoryData,
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [231, 76, 60],
-        textColor: [255, 255, 255],
-        fontSize: 11,
-        fontStyle: 'bold'
-      },
-      styles: { 
-        fontSize: 9,
-        cellPadding: 6
-      },
-      columnStyles: { 
-        1: { halign: 'right' },
-        2: { halign: 'right' }
-      },
-      alternateRowStyles: {
-        fillColor: [248, 249, 250]
-      },
-      margin: { left: margin, right: margin }
-    });
-    
-    currentY = doc.lastAutoTable.finalY + 15;
-  }
+  // Removed pie chart section
   
   // Income Analysis
   if (Object.keys(categoryIncome).length > 0) {
@@ -288,30 +344,35 @@ export const generateMonthlyReport = (transactions, month) => {
       incomeTransactions.filter(t => t.category === category).length.toString()
     ]);
     
-    doc.autoTable({
+    autoTable(doc, {
       startY: currentY,
       head: [['Income Source', 'Amount', 'Percent', 'Transactions']],
       body: incomeData,
       theme: 'grid',
       headStyles: { 
-        fillColor: [46, 204, 113],
+        fillColor: [34, 197, 94], // Professional green
         textColor: [255, 255, 255],
         fontSize: 11,
-        fontStyle: 'bold'
+        fontStyle: 'bold',
+        halign: 'center'
       },
       styles: { 
         fontSize: 10,
-        cellPadding: 6
+        cellPadding: 8,
+        textColor: [15, 23, 42] // Deep navy text
       },
       columnStyles: { 
-        1: { halign: 'right' },
-        2: { halign: 'right' },
-        3: { halign: 'center' }
+        0: { halign: 'left', textColor: [15, 23, 42], fontStyle: 'bold' },
+        1: { halign: 'right', textColor: [34, 197, 94], fontStyle: 'bold' }, // Green for amounts
+        2: { halign: 'right', textColor: [15, 23, 42] },
+        3: { halign: 'center', textColor: [15, 23, 42] }
       },
       alternateRowStyles: {
-        fillColor: [248, 249, 250]
+        fillColor: [248, 250, 252] // Light gray
       },
-      margin: { left: margin, right: margin }
+      margin: { left: margin, right: margin },
+      tableLineColor: [226, 232, 240], // Light border
+      tableLineWidth: 0.5
     });
     
     currentY = doc.lastAutoTable.finalY + 15;
@@ -329,29 +390,34 @@ export const generateMonthlyReport = (transactions, month) => {
     ['Highest Income Day', highestIncomeDay.day ? format(new Date(highestIncomeDay.day), 'dd MMM') : 'None', formatInt(highestIncomeDay.amount)],
   ];
   
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [['Metric', 'Value', 'Details']],
     body: dailyStats,
     theme: 'grid',
     headStyles: { 
-      fillColor: [52, 152, 219],
+      fillColor: [59, 130, 246], // Professional blue
       textColor: [255, 255, 255],
       fontSize: 11,
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      halign: 'center'
     },
     styles: { 
       fontSize: 10,
-      cellPadding: 6
+      cellPadding: 8,
+      textColor: [15, 23, 42] // Deep navy text
     },
     columnStyles: { 
-      1: { halign: 'right' },
-      2: { halign: 'center' }
+      0: { halign: 'left', textColor: [15, 23, 42], fontStyle: 'bold' },
+      1: { halign: 'right', textColor: [59, 130, 246], fontStyle: 'bold' }, // Blue for values
+      2: { halign: 'center', textColor: [71, 85, 105] } // Medium gray for details
     },
     alternateRowStyles: {
-      fillColor: [248, 249, 250]
+      fillColor: [248, 250, 252] // Light gray
     },
-    margin: { left: margin, right: margin }
+    margin: { left: margin, right: margin },
+    tableLineColor: [226, 232, 240], // Light border
+    tableLineWidth: 0.5
   });
   
   currentY = doc.lastAutoTable.finalY + 15;
@@ -366,30 +432,35 @@ export const generateMonthlyReport = (transactions, month) => {
     formatInt((weeklyIncome[week] || 0) - expense)
   ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [['Week', 'Expenses', 'Income', 'Net']],
     body: weeklyData,
     theme: 'grid',
     headStyles: { 
-      fillColor: [155, 89, 182],
+      fillColor: [168, 85, 247], // Professional purple
       textColor: [255, 255, 255],
       fontSize: 11,
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      halign: 'center'
     },
     styles: { 
       fontSize: 10,
-      cellPadding: 6
+      cellPadding: 8,
+      textColor: [15, 23, 42] // Deep navy text
     },
     columnStyles: { 
-      1: { halign: 'right' },
-      2: { halign: 'right' },
-      3: { halign: 'right' }
+      0: { halign: 'left', textColor: [15, 23, 42], fontStyle: 'bold' },
+      1: { halign: 'right', textColor: [239, 68, 68], fontStyle: 'bold' }, // Red for expenses
+      2: { halign: 'right', textColor: [34, 197, 94], fontStyle: 'bold' }, // Green for income
+      3: { halign: 'right', textColor: [59, 130, 246], fontStyle: 'bold' } // Blue for net
     },
     alternateRowStyles: {
-      fillColor: [248, 249, 250]
+      fillColor: [248, 250, 252] // Light gray
     },
-    margin: { left: margin, right: margin }
+    margin: { left: margin, right: margin },
+    tableLineColor: [226, 232, 240], // Light border
+    tableLineWidth: 0.5
   });
   
   currentY = doc.lastAutoTable.finalY + 15;
@@ -401,191 +472,126 @@ export const generateMonthlyReport = (transactions, month) => {
   const dayOfWeekData = dayNames.map((day, index) => {
     const expense = dayOfWeekExpenses[index];
     const income = dayOfWeekIncome[index];
-    const txCount = dayOfWeekCount[index];
-    // Calculate number of expense transactions for this day
-    const expenseTxCount = monthlyTransactions.filter(t => getDay(new Date(t.date)) === index && t.type === 'expense').length;
-    const avgExpense = expenseTxCount > 0 ? expense / expenseTxCount : 0;
+    const dayCount = dayOfWeekCount[index]; // Number of actual days (Mondays, Tuesdays, etc.)
+    // Calculate average expense per day occurrence (not per transaction)
+    const avgExpense = dayCount > 0 ? expense / dayCount : 0;
+    const avgIncome = dayCount > 0 ? income / dayCount : 0;
     return [
       day,
       formatInt(expense),
       formatInt(income),
-      txCount.toString(),
-      formatInt(avgExpense)
+      dayCount.toString(),
+      formatInt(avgExpense),
+      formatInt(avgIncome)
     ];
   });
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
-    head: [['Day', 'Expenses', 'Income', 'Transactions', 'Avg Expense']],
+    head: [['Day', 'Expenses', 'Income', 'Days', 'Avg Expense', 'Avg Income']],
     body: dayOfWeekData,
     theme: 'grid',
     headStyles: { 
-      fillColor: [230, 126, 34],
+      fillColor: [249, 115, 22], // Professional orange
       textColor: [255, 255, 255],
       fontSize: 11,
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      halign: 'center'
     },
     styles: { 
       fontSize: 9,
       cellPadding: 8,
       halign: 'right',
       valign: 'middle',
+      textColor: [15, 23, 42] // Deep navy text
     },
     columnStyles: { 
-      0: { halign: 'left', cellPadding: 8 },
-      1: { halign: 'right', cellPadding: 8 },
-      2: { halign: 'right', cellPadding: 8 },
-      3: { halign: 'center', cellPadding: 8 },
-      4: { halign: 'right', cellPadding: 8 }
+      0: { halign: 'left', cellPadding: 8, textColor: [15, 23, 42], fontStyle: 'bold' },
+      1: { halign: 'right', cellPadding: 8, textColor: [239, 68, 68], fontStyle: 'bold' }, // Red for expenses
+      2: { halign: 'right', cellPadding: 8, textColor: [34, 197, 94], fontStyle: 'bold' }, // Green for income
+      3: { halign: 'center', cellPadding: 8, textColor: [15, 23, 42] },
+      4: { halign: 'right', cellPadding: 8, textColor: [59, 130, 246], fontStyle: 'bold' }, // Blue for avg expense
+      5: { halign: 'right', cellPadding: 8, textColor: [34, 197, 94], fontStyle: 'bold' } // Green for avg income
     },
     alternateRowStyles: {
-      fillColor: [248, 249, 250]
+      fillColor: [248, 250, 252] // Light gray
     },
-    margin: { left: margin, right: margin }
+    margin: { left: margin, right: margin },
+    tableLineColor: [226, 232, 240], // Light border
+    tableLineWidth: 0.5
   });
 
-  currentY = doc.lastAutoTable.finalY + 15;
-  
-  // Transaction Size Analysis
-  currentY = addSectionTitle('TRANSACTION SIZE ANALYSIS', currentY);
-  
-  const transactionStats = [
-    ['Avg Expense', formatInt(avgExpense), 'Per transaction'],
-    ['Median Expense', formatInt(medianExpense), 'Middle value'],
-    ['Avg Income', formatInt(avgIncome), 'Per transaction'],
-    ['Median Income', formatInt(medianIncome), 'Middle value'],
-    ['Largest Expense', formatInt(Math.max(...expenseSizes)), 'Single transaction'],
-    ['Largest Income', formatInt(Math.max(...incomeSizes)), 'Single transaction'],
-    ['Smallest Expense', formatInt(Math.min(...expenseSizes)), 'Single transaction'],
-    ['Smallest Income', formatInt(Math.min(...incomeSizes)), 'Single transaction'],
-  ];
-  
-  doc.autoTable({
-    startY: currentY,
-    head: [['Metric', 'Amount', 'Description']],
-    body: transactionStats,
-    theme: 'grid',
-    headStyles: { 
-      fillColor: [149, 165, 166],
-      textColor: [255, 255, 255],
-      fontSize: 11,
-      fontStyle: 'bold'
-    },
-    styles: { 
-      fontSize: 10,
-      cellPadding: 6
-    },
-    columnStyles: { 
-      1: { halign: 'right' },
-      2: { halign: 'center' }
-    },
-    alternateRowStyles: {
-      fillColor: [248, 249, 250]
-    },
-    margin: { left: margin, right: margin }
-  });
-  
-  currentY = doc.lastAutoTable.finalY + 15;
-  
-  // Key Insights Section
-  currentY = addSectionTitle('KEY INSIGHTS & PATTERNS', currentY);
-  
-  // Calculate insights
-  const avgDailyExpense = totalExpense / daysInMonth.length;
-  const highestExpenseCategory = sortedCategories[0] || ['None', 0];
-  const expenseTrend = netSavings >= 0 ? 'Positive' : 'Negative';
-  const mostExpensiveDay = dayNames[dayOfWeekExpenses.indexOf(Math.max(...dayOfWeekExpenses))];
-  const mostIncomeDay = dayNames[dayOfWeekIncome.indexOf(Math.max(...dayOfWeekIncome))];
-  
-  const insights = [
-    `Average Daily Expense: ${formatInt(avgDailyExpense)}`,
-    `Highest Expense Category: ${highestExpenseCategory[0]} (${formatInt(highestExpenseCategory[1])})`,
-    `Financial Trend: ${expenseTrend} (${savingsRate >= 0 ? 'Savings' : 'Deficit'})`,
-    `Transaction Frequency: ${(totalTransactions / daysInMonth.length).toFixed(1)} transactions per day`,
-    `Most Expensive Day: ${mostExpensiveDay} (${formatInt(Math.max(...dayOfWeekExpenses))})`,
-    `Most Income Day: ${mostIncomeDay} (${formatInt(Math.max(...dayOfWeekIncome))})`,
-    `Expense Concentration: ${((highestExpenseCategory[1] / totalExpense) * 100).toFixed(1)}% in top category`,
-    `Income Diversity: ${Object.keys(categoryIncome).length} different income sources`,
-  ];
-  
-  insights.forEach((insight, index) => {
-    doc.setFontSize(10);
-    doc.setTextColor(44, 62, 80);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`• ${insight}`, margin, currentY + (index * 6));
-  });
-  
-  currentY += (insights.length * 6) + 15;
-  
-  // Recommendations Section
-  currentY = addSectionTitle('DETAILED RECOMMENDATIONS', currentY);
-  
-  const recommendations = [];
-  
-  if (savingsRate < 20) {
-    recommendations.push('• Consider increasing savings rate to at least 20% for better financial security');
-  }
-  
-  if (savingsRate < 0) {
-    recommendations.push('• Current spending exceeds income - immediate cost-cutting measures recommended');
-  }
-  
-  if (avgDailyExpense > totalIncome / daysInMonth.length * 0.8) {
-    recommendations.push('• Daily expenses are high relative to income - review discretionary spending');
-  }
-  
-  if (highestExpenseCategory[1] > totalExpense * 0.4) {
-    recommendations.push(`• ${highestExpenseCategory[0]} represents ${((highestExpenseCategory[1] / totalExpense) * 100).toFixed(1)}% of expenses - consider optimization`);
-  }
-  
-  if (daysWithExpenses < daysInMonth.length * 0.5) {
-    recommendations.push('• Low transaction frequency - consider tracking all expenses for better analysis');
-  }
-  
-  if (Math.max(...dayOfWeekExpenses) > totalExpense * 0.2) {
-    recommendations.push(`• High spending on ${mostExpensiveDay}s - review weekend spending patterns`);
-  }
-  
-  if (recommendations.length === 0) {
-    recommendations.push('• Excellent financial management! Continue maintaining current spending patterns');
-    recommendations.push('• Consider increasing investments for long-term wealth building');
-    recommendations.push('• Explore additional income sources to accelerate savings');
-  }
-  
-  recommendations.forEach((rec, index) => {
-    doc.setFontSize(10);
-    doc.setTextColor(44, 62, 80);
-    doc.setFont('helvetica', 'normal');
-    doc.text(rec, margin, currentY + (index * 6));
-  });
-  
-  // Footer
+  // Clean, minimal footer
   const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(127, 140, 141);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+    
+    // Simple footer line
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(20, doc.internal.pageSize.height - 15, pageWidth - 20, doc.internal.pageSize.height - 15);
+    
+    // Page number
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.height - 5, { align: 'center' });
   }
   
-  // --- Last Page: Thank You ---
+  // --- Last Page: Classic Report Conclusion ---
   doc.addPage();
-  doc.setFillColor(255, 255, 255);
+  
+  // Classic navy background matching the first page
+  doc.setFillColor(15, 23, 42); // Deep navy blue
   doc.rect(0, 0, pageWidth, pageHeight, 'F');
-  // Accent line for elegance
-  const accentY = pageHeight / 2 - 30;
-  doc.setDrawColor(52, 73, 94);
-  doc.setLineWidth(1.5);
-  doc.line(pageWidth / 2 - 40, accentY, pageWidth / 2 + 40, accentY);
-  // Thank You message
-  const thankY = pageHeight / 2;
-  doc.setTextColor(52, 73, 94);
+  
+  // Add subtle pattern overlay matching first page
+  doc.setFillColor(30, 41, 59); // Slightly lighter navy
+  for (let i = 0; i < pageWidth; i += 25) {
+    for (let j = 0; j < pageHeight; j += 25) {
+      if ((i + j) % 50 === 0) {
+        doc.rect(i, j, 2, 2, 'F');
+      }
+    }
+  }
+  
+  // Main conclusion message with classic styling
+  doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(36);
-  doc.text('Thank You', pageWidth / 2, thankY, { align: 'center' });
+  doc.setFontSize(38);
+  doc.text('REPORT', pageWidth / 2, 120, { align: 'center' });
+  doc.setFontSize(32);
+  doc.text('CONCLUSION', pageWidth / 2, 155, { align: 'center' });
+  
+  // Elegant divider line matching first page
+  doc.setDrawColor(59, 130, 246); // Blue accent
+  doc.setLineWidth(3);
+  doc.line(pageWidth / 2 - 70, 175, pageWidth / 2 + 70, 175);
+  
+  // Professional conclusion text
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Thank you for choosing our financial analysis services', pageWidth / 2, 200, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text(`Period: ${format(monthDate, 'MMMM yyyy')}`, pageWidth / 2, 220, { align: 'center' });
+  
+  // Author signature with classic styling
+  doc.setFontSize(16);
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(18);
-  doc.text('- Revanthvenkat Pasupuleti', pageWidth / 2, thankY + 18, { align: 'center' });
+  doc.text('- Revanthvenkat Pasupuleti', pageWidth / 2, 250, { align: 'center' });
+  
+  // Generation info with subtle styling
+  doc.setFontSize(11);
+  doc.setTextColor(156, 163, 175); // Light gray
+  doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageWidth / 2, 280, { align: 'center' });
+  doc.text('Professional Financial Analysis & Insights', pageWidth / 2, 295, { align: 'center' });
+  
+  // Clean design without branding
+  
+  // Contact information in footer style
+  doc.setTextColor(156, 163, 175);
+  doc.setFontSize(10);
+  doc.text('prvenkat113@gmail.com', pageWidth / 2, pageHeight - 23, { align: 'center' });
   
   return doc;
 };
@@ -595,17 +601,41 @@ function addSectionTitle(title, y) {
   const pageWidth = doc.internal.pageSize.width;
   const margin = 20;
   
-  doc.setFontSize(14);
-  doc.setTextColor(52, 73, 94);
+  // Ensure we don't go too close to the top
+  if (y < 30) {
+    y = 30;
+  }
+  
+  // Classic section title styling
+  doc.setFontSize(16);
+  doc.setTextColor(15, 23, 42); // Deep navy
   doc.setFont('helvetica', 'bold');
   doc.text(title, margin, y);
   
-  // Add underline
-  doc.setDrawColor(52, 73, 94);
-  doc.setLineWidth(0.5);
-  doc.line(margin, y + 2, pageWidth - margin, y + 2);
+  // Classic double underline
+  doc.setDrawColor(15, 23, 42); // Navy color
+  doc.setLineWidth(1);
+  doc.line(margin, y + 2, margin + 120, y + 2);
+  doc.setDrawColor(59, 130, 246); // Blue accent
+  doc.setLineWidth(2);
+  doc.line(margin, y + 4, margin + 120, y + 4);
   
-  return y + 10;
+  // Classic background highlight
+  doc.setFillColor(248, 250, 252); // Light gray
+  doc.rect(margin - 8, y - 10, pageWidth - 2 * margin + 16, 18, 'F');
+  
+  // Re-draw the title and lines on top
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text(title, margin, y);
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(1);
+  doc.line(margin, y + 2, margin + 120, y + 2);
+  doc.setDrawColor(59, 130, 246);
+  doc.setLineWidth(2);
+  doc.line(margin, y + 4, margin + 120, y + 4);
+  
+  return y + 22; // Increased spacing for classic look
 }
 
 export const generateInsights = (transactions) => {
@@ -620,7 +650,6 @@ export const generateInsights = (transactions) => {
   });
 
   const expenses = monthlyTransactions.filter(t => t.type === 'expense');
-  const income = monthlyTransactions.filter(t => t.type === 'income');
 
   // Calculate category-wise expenses
   const categoryTotals = expenses.reduce((acc, t) => {
@@ -650,19 +679,6 @@ export const generateInsights = (transactions) => {
       doc.text(`${category}: ${total.toFixed(2)} (${percentage}%)`, 20, yPos);
       yPos += 10;
     });
-
-  // Add income vs expense analysis
-  doc.addPage();
-  doc.setFontSize(16);
-  doc.text('Comprehensive Income vs Expense Analysis', 20, 20);
-  doc.setFontSize(12);
-
-  const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
-  const savingsRate = ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1);
-
-  doc.text(`Total Income: ${totalIncome.toFixed(2)}`, 20, 35);
-  doc.text(`Total Expenses: ${totalExpense.toFixed(2)}`, 20, 45);
-  doc.text(`Savings Rate: ${savingsRate}%`, 20, 55);
 
   return doc;
 }; 

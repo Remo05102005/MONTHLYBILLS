@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { 
   format, 
   parseISO, 
@@ -161,11 +161,11 @@ export const generatePDF = (data, type = 'monthly') => {
       // Create table data
       const tableData = data.map((value, index) => [
         labels[index],
-        `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+        `${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
       ]);
       
       // Add table
-      doc.autoTable({
+      autoTable(doc, {
         startY: y,
         head: [['Period', 'Amount']],
         body: tableData,
@@ -249,7 +249,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(12);
     doc.text('Total Income', margin + 5, currentY + 8);
     doc.setFontSize(14);
-    doc.text(`₹${(data.statistics?.income || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 20);
+    doc.text(`${(data.statistics?.income || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 20);
     
     // Expenses box
     doc.setFillColor(231, 76, 60);
@@ -259,7 +259,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(12);
     doc.text('Total Expenses', margin + boxWidth + 15, currentY + 8);
     doc.setFontSize(14);
-    doc.text(`₹${(data.statistics?.expenses || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + boxWidth + 15, currentY + 20);
+    doc.text(`${(data.statistics?.expenses || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + boxWidth + 15, currentY + 20);
     
     currentY += boxHeight + 10;
     
@@ -271,7 +271,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(12);
     doc.text('Net Balance', margin + 5, currentY + 8);
     doc.setFontSize(14);
-    doc.text(`₹${(data.statistics?.savings || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 20);
+    doc.text(`${(data.statistics?.savings || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 20);
     
     // Savings Rate box
     doc.setFillColor(155, 89, 182);
@@ -301,7 +301,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(10);
     doc.text('Min Daily Expense', margin + 5, currentY + 8);
     doc.setFontSize(12);
-    doc.text(`₹${(data.statistics?.minDailyExpense || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 18);
+    doc.text(`${(data.statistics?.minDailyExpense || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + 5, currentY + 18);
     
     // Max Daily Expense
     doc.setFillColor(230, 126, 34);
@@ -311,9 +311,14 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(10);
     doc.text('Max Daily Expense', margin + smallBoxWidth + 10, currentY + 8);
     doc.setFontSize(12);
-    doc.text(`₹${(data.statistics?.maxDailyExpense || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + smallBoxWidth + 10, currentY + 18);
+    doc.text(`${(data.statistics?.maxDailyExpense || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + smallBoxWidth + 10, currentY + 18);
     
-    // Avg Daily Expense
+    // Avg Daily Expense (CORRECTED CALCULATION)
+    // Calculate total expenses and divide by total days in the period
+    const totalExpenses = data.statistics?.expenses || 0;
+    const totalDays = data.statistics?.totalDays || 30; // Default to 30 if not provided
+    const correctedAvgDailyExpense = totalDays > 0 ? totalExpenses / totalDays : 0;
+    
     doc.setFillColor(149, 165, 166);
     doc.rect(margin + (smallBoxWidth + 5) * 2, currentY, smallBoxWidth, smallBoxHeight, 'F');
     doc.setTextColor(0, 0, 0);
@@ -321,7 +326,7 @@ export const generatePDF = (data, type = 'monthly') => {
     doc.setFontSize(10);
     doc.text('Avg Daily Expense', margin + (smallBoxWidth + 5) * 2 + 5, currentY + 8);
     doc.setFontSize(12);
-    doc.text(`₹${(data.statistics?.avgDailyExpense || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + (smallBoxWidth + 5) * 2 + 5, currentY + 18);
+    doc.text(`${correctedAvgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, margin + (smallBoxWidth + 5) * 2 + 5, currentY + 18);
     
     currentY += smallBoxHeight + 10;
     
@@ -351,7 +356,7 @@ export const generatePDF = (data, type = 'monthly') => {
       const categoryData = Object.entries(categoryExpenses)
         .map(([category, amount]) => [
           category,
-          `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+          `${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
           `${((amount / (data.statistics?.expenses || 1)) * 100).toFixed(1)}%`
         ])
         .sort((a, b) => parseFloat(b[1].replace(/[^0-9.-]+/g, '')) - parseFloat(a[1].replace(/[^0-9.-]+/g, '')));
@@ -371,7 +376,7 @@ export const generatePDF = (data, type = 'monthly') => {
         currentY = addPieChart(pieData, pieLabels, 'Expense Distribution by Category', currentY, 40, pieColors);
         
         // Add table
-        doc.autoTable({
+        autoTable(doc, {
           startY: currentY,
           head: [['Category', 'Amount', 'Percentage']],
           body: categoryData,
@@ -403,10 +408,55 @@ export const generatePDF = (data, type = 'monthly') => {
       // Add day of week analysis
       currentY = addSectionTitle('Day of Week Analysis', currentY);
       
-      // Group transactions by day of week
-      const dayOfWeekData = [0, 0, 0, 0, 0, 0, 0]; // 0 = Sunday, 6 = Saturday
+      // Group transactions by day of week and count occurrences
+      const dayOfWeekTotals = [0, 0, 0, 0, 0, 0, 0]; // 0 = Sunday, 6 = Saturday
+      const dayOfWeekCounts = [0, 0, 0, 0, 0, 0, 0]; // Count of days for each day of week
       const dayOfWeekLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       
+      // First, get all unique dates to count occurrences of each day of week
+      const uniqueDates = new Set();
+      data.transactions.forEach(transaction => {
+        try {
+          const dateStr = transaction.date;
+          if (!dateStr) return;
+          
+          let dateObj;
+          if (isDate(dateStr)) {
+            dateObj = dateStr;
+          } else {
+            try {
+              dateObj = parseISO(dateStr);
+              if (!isValid(dateObj)) {
+                dateObj = new Date(dateStr);
+              }
+            } catch (e) {
+              dateObj = new Date(dateStr);
+            }
+          }
+          
+          if (!isValid(dateObj)) return;
+          
+          const date = format(dateObj, 'yyyy-MM-dd');
+          uniqueDates.add(date);
+        } catch (error) {
+          console.error('Error processing transaction date:', error);
+        }
+      });
+      
+      // Count occurrences of each day of week
+      uniqueDates.forEach(dateStr => {
+        try {
+          const dateObj = parseISO(dateStr);
+          if (isValid(dateObj)) {
+            const dayOfWeek = getDay(dateObj);
+            dayOfWeekCounts[dayOfWeek]++;
+          }
+        } catch (error) {
+          console.error('Error processing date for day count:', error);
+        }
+      });
+      
+      // Sum expenses by day of week
       data.transactions.forEach(transaction => {
         try {
           const dateStr = transaction.date;
@@ -430,12 +480,17 @@ export const generatePDF = (data, type = 'monthly') => {
           
           const dayOfWeek = getDay(dateObj);
           if (transaction.type === 'expense') {
-            dayOfWeekData[dayOfWeek] += Number(transaction.amount) || 0;
+            dayOfWeekTotals[dayOfWeek] += Number(transaction.amount) || 0;
           }
         } catch (error) {
           console.error('Error processing transaction date:', error);
         }
       });
+      
+      // Calculate averages (total expenses / number of days of that type)
+      const dayOfWeekData = dayOfWeekTotals.map((total, index) => 
+        dayOfWeekCounts[index] > 0 ? total / dayOfWeekCounts[index] : 0
+      );
       
       // Add bar chart for day of week expenses
       const dayColors = [
@@ -443,7 +498,7 @@ export const generatePDF = (data, type = 'monthly') => {
         [155, 89, 182], [241, 196, 15], [230, 126, 34], [149, 165, 166]
       ];
       
-      currentY = addBarChart(dayOfWeekData, dayOfWeekLabels, 'Expenses by Day of Week', currentY, contentWidth, 60, dayColors);
+      currentY = addBarChart(dayOfWeekData, dayOfWeekLabels, 'Average Daily Expenses by Day of Week', currentY, contentWidth, 60, dayColors);
       
       // Add monthly trend analysis
       currentY = addSectionTitle('Monthly Trend Analysis', currentY);
@@ -498,44 +553,6 @@ export const generatePDF = (data, type = 'monthly') => {
       currentY = addLineChart(monthlyExpense, monthLabels, 'Monthly Expense Trend', currentY, contentWidth, 60, [231, 76, 60]);
       currentY = addLineChart(monthlyBalance, monthLabels, 'Monthly Balance Trend', currentY, contentWidth, 60, [52, 152, 219]);
       
-      // Add monthly data table
-      const monthlyTableData = monthKeys.map(key => [
-        format(parseISO(key + '-01'), 'MMMM yyyy'),
-        `₹${monthlyData[key].income.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-        `₹${monthlyData[key].expense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-        `₹${(monthlyData[key].income - monthlyData[key].expense).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-        `${((monthlyData[key].income - monthlyData[key].expense) / monthlyData[key].income * 100).toFixed(1)}%`
-      ]);
-      
-      doc.autoTable({
-        startY: currentY,
-        head: [['Month', 'Income', 'Expenses', 'Balance', 'Savings Rate']],
-        body: monthlyTableData,
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [66, 139, 202],
-          textColor: [255, 255, 255],
-          fontSize: 12,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 9,
-          cellPadding: 4
-        },
-        columnStyles: { 
-          1: { halign: 'right' },
-          2: { halign: 'right' },
-          3: { halign: 'right' },
-          4: { halign: 'right' }
-        },
-        alternateRowStyles: {
-          fillColor: [245, 245, 245]
-        },
-        margin: { left: margin, right: margin }
-      });
-      
-      currentY = doc.lastAutoTable.finalY + 10;
-      currentY = addDivider(currentY);
       
       // Add transaction frequency analysis
       currentY = addSectionTitle('Transaction Frequency Analysis', currentY);
@@ -566,11 +583,11 @@ export const generatePDF = (data, type = 'monthly') => {
       
       // Group transactions by size ranges
       const sizeRanges = [
-        { min: 0, max: 100, label: '₹0-100' },
-        { min: 101, max: 500, label: '₹101-500' },
-        { min: 501, max: 1000, label: '₹501-1000' },
-        { min: 1001, max: 5000, label: '₹1001-5000' },
-        { min: 5001, max: Infinity, label: '₹5000+' }
+        { min: 0, max: 100, label: '0-100' },
+        { min: 101, max: 500, label: '101-500' },
+        { min: 501, max: 1000, label: '501-1000' },
+        { min: 1001, max: 5000, label: '1001-5000' },
+        { min: 5001, max: Infinity, label: '5000+' }
       ];
       
       const sizeData = new Array(sizeRanges.length).fill(0);
@@ -636,12 +653,13 @@ export const generatePDF = (data, type = 'monthly') => {
         }
       });
       
-      // Add hidden insights section
+        // Add hidden insights section
       currentY = addSectionTitle('Hidden Insights', currentY);
       
-      // Calculate average transaction size
-      const totalAmount = data.transactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-      const avgTransactionSize = totalAmount / data.transactions.length;
+      // Calculate average transaction size with validation
+      const validTransactions = data.transactions.filter(t => !isNaN(Number(t.amount)) && Number(t.amount) !== 0);
+      const totalAmount = validTransactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const avgTransactionSize = validTransactions.length > 0 ? totalAmount / validTransactions.length : 0;
       
       // Calculate most expensive category
       let mostExpensiveCategory = 'None';
@@ -670,12 +688,12 @@ export const generatePDF = (data, type = 'monthly') => {
       doc.setFontSize(10);
       
       const insights = [
-        `Average Transaction Size: ₹${avgTransactionSize.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-        `Most Expensive Category: ${mostExpensiveCategory} (₹${mostExpensiveAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
-        `Day with Highest Expenses: ${highestExpenseDay} (₹${highestExpenseAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
+        `Average Transaction Size: ${avgTransactionSize.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+        `Most Expensive Category: ${mostExpensiveCategory} (${mostExpensiveAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
+        `Day with Highest Expenses: ${highestExpenseDay} (${highestExpenseAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
         `Income to Expense Ratio: ${((data.statistics?.income || 0) / (data.statistics?.expenses || 1)).toFixed(2)}`,
-        `Daily Average Income: ₹${((data.statistics?.income || 0) / (data.statistics?.daysWithTransactions || 1)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-        `Daily Average Expense: ₹${((data.statistics?.expenses || 0) / (data.statistics?.daysWithTransactions || 1)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+        `Daily Average Income: ${((data.statistics?.income || 0) / (data.statistics?.daysWithTransactions || 1)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+        `Daily Average Expense: ${correctedAvgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
       ];
       
       insights.forEach((insight, index) => {
@@ -689,9 +707,9 @@ export const generatePDF = (data, type = 'monthly') => {
       const trendData = Object.entries(transactionsByDate)
         .map(([date, values]) => [
           safeFormatDate(date),
-          `₹${values.income.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-          `₹${values.expense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-          `₹${(values.income - values.expense).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+          `${values.income.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+          `${values.expense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+          `${(values.income - values.expense).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
         ])
         .sort((a, b) => {
           try {
@@ -704,7 +722,7 @@ export const generatePDF = (data, type = 'monthly') => {
         });
       
       if (trendData.length > 0) {
-        doc.autoTable({
+        autoTable(doc, {
           startY: currentY,
           head: [['Date', 'Income', 'Expense', 'Balance']],
           body: trendData,
@@ -743,7 +761,49 @@ export const generatePDF = (data, type = 'monthly') => {
         const totalIncome = data.statistics?.income || 0;
         const totalExpense = data.statistics?.expenses || 0;
         const savingsRate = data.statistics?.savingsRate || 0;
-        const avgDailyExpense = (totalExpense / (data.statistics?.daysWithTransactions || 1));
+        
+        // Use the corrected daily average calculation here as well
+        const transactionsByDate = {};
+        if (data.transactions?.length > 0) {
+          data.transactions.forEach(transaction => {
+            try {
+              const dateStr = transaction.date;
+              if (!dateStr) return;
+              
+              let dateObj;
+              if (isDate(dateStr)) {
+                dateObj = dateStr;
+              } else {
+                try {
+                  dateObj = parseISO(dateStr);
+                  if (!isValid(dateObj)) {
+                    dateObj = new Date(dateStr);
+                  }
+                } catch (e) {
+                  dateObj = new Date(dateStr);
+                }
+              }
+              
+              if (!isValid(dateObj)) return;
+              
+              const date = format(dateObj, 'yyyy-MM-dd');
+              if (!transactionsByDate[date]) {
+                transactionsByDate[date] = 0;
+              }
+              if (transaction.type === 'expense') {
+                transactionsByDate[date] += Number(transaction.amount) || 0;
+              }
+            } catch (error) {
+              console.error('Error processing transaction date for daily average:', error);
+            }
+          });
+        }
+        
+        // Calculate the average of daily totals
+        const dailyTotals = Object.values(transactionsByDate);
+        const correctedAvgDailyExpense = dailyTotals.length > 0 ? 
+          dailyTotals.reduce((sum, total) => sum + total, 0) / dailyTotals.length : 0;
+        const avgDailyExpense = correctedAvgDailyExpense;
         
         // Transaction analysis
         const incomeTransactions = data.transactions.filter(t => t.type === 'income');
@@ -770,35 +830,35 @@ export const generatePDF = (data, type = 'monthly') => {
         const recommendations = [];
         
         if (savingsRate < 20) {
-          recommendations.push('• Consider increasing savings rate to at least 20% for better financial security');
+          recommendations.push('Consider increasing savings rate to at least 20% for better financial security');
         }
         
         if (savingsRate < 0) {
-          recommendations.push('• Current spending exceeds income - immediate cost-cutting measures recommended');
+          recommendations.push('Current spending exceeds income - immediate cost-cutting measures recommended');
         }
         
         if (avgDailyExpense > totalIncome / 30 * 0.8) {
-          recommendations.push('• Daily expenses are high relative to income - review discretionary spending');
+          recommendations.push('Daily expenses are high relative to income - review discretionary spending');
         }
         
         if (data.statistics?.maxDailyExpense > totalIncome * 0.3) {
-          recommendations.push('• Large single-day expenses detected - consider spreading major purchases');
+          recommendations.push('Large single-day expenses detected - consider spreading major purchases');
         }
         
         // Category-specific recommendations
         const topExpenseCategory = Object.entries(categoryExpenses).sort(([, a], [, b]) => b - a)[0];
         if (topExpenseCategory && topExpenseCategory[1] > totalExpense * 0.4) {
-          recommendations.push(`• ${topExpenseCategory[0]} represents ${((topExpenseCategory[1] / totalExpense) * 100).toFixed(1)}% of expenses - consider optimization`);
+          recommendations.push(`${topExpenseCategory[0]} represents ${((topExpenseCategory[1] / totalExpense) * 100).toFixed(1)}% of expenses - consider optimization`);
         }
         
         if (Object.keys(categoryIncome).length === 1) {
-          recommendations.push('• Income is concentrated in one source - consider diversifying income streams');
+          recommendations.push('Income is concentrated in one source - consider diversifying income streams');
         }
         
         if (recommendations.length === 0) {
-          recommendations.push('• Excellent financial management! Continue maintaining current spending patterns');
-          recommendations.push('• Consider increasing investments for long-term wealth building');
-          recommendations.push('• Explore additional income sources to accelerate savings');
+          recommendations.push('Excellent financial management! Continue maintaining current spending patterns');
+          recommendations.push('Consider increasing investments for long-term wealth building');
+          recommendations.push('Explore additional income sources to accelerate savings');
         }
         
         // Add recommendations
@@ -823,15 +883,15 @@ export const generatePDF = (data, type = 'monthly') => {
         const indicators = [
           ['Savings Rate', `${savingsRate.toFixed(1)}%`, savingsRate >= 20 ? 'Excellent' : savingsRate >= 10 ? 'Good' : 'Needs Improvement'],
           ['Expense to Income Ratio', `${((totalExpense / totalIncome) * 100).toFixed(1)}%`, (totalExpense / totalIncome) <= 0.8 ? 'Healthy' : 'High'],
-          ['Average Daily Expense', `₹${avgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, avgDailyExpense <= totalIncome / 30 * 0.7 ? 'Controlled' : 'High'],
+          ['Average Daily Expense', `${avgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, avgDailyExpense <= totalIncome / 30 * 0.7 ? 'Controlled' : 'High'],
           ['Transaction Frequency', `${(totalTransactions / (data.statistics?.daysWithTransactions || 1)).toFixed(1)} per day`, 'Normal'],
-          ['Average Expense Size', `₹${avgExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
-          ['Average Income Size', `₹${avgIncome.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
+          ['Average Expense Size', `${avgExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
+          ['Average Income Size', `${avgIncome.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
           ['Income Sources', Object.keys(categoryIncome).length.toString(), Object.keys(categoryIncome).length > 1 ? 'Diversified' : 'Concentrated'],
           ['Expense Categories', Object.keys(categoryExpenses).length.toString(), 'Active categories']
         ];
         
-        doc.autoTable({
+        autoTable(doc, {
           startY: currentY,
           head: [['Indicator', 'Value', 'Status']],
           body: indicators,
@@ -865,13 +925,13 @@ export const generatePDF = (data, type = 'monthly') => {
           .sort(([, a], [, b]) => b - a)
           .map(([category, amount]) => [
             category,
-            `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+            `${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
             `${((amount / totalExpense) * 100).toFixed(1)}%`,
             expenseTransactions.filter(t => t.category === category).length.toString()
           ]);
         
         if (categoryData.length > 0) {
-          doc.autoTable({
+          autoTable(doc, {
             startY: currentY,
             head: [['Category', 'Amount', 'Percentage', 'Transactions']],
             body: categoryData,
@@ -927,7 +987,6 @@ export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
-  const contentWidth = pageWidth - (margin * 2);
   let y = 20;
 
   // Title
@@ -961,7 +1020,7 @@ export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
     .map(([cat, amt]) => [cat, Math.round(amt).toLocaleString('en-IN')]);
 
   if (tableData.length > 0) {
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       head: [['Category', 'Amount']],
       body: tableData,
@@ -1039,4 +1098,4 @@ export const testPDFGeneration = () => {
     console.error('PDF generation test failed:', error);
     return false;
   }
-}; 
+};
