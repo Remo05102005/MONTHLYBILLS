@@ -634,7 +634,33 @@ const Home = () => {
         doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 20, pageHeight - 5, { align: 'right' });
       }
       
-      // Download the PDF
+      // Check if Web Share API is available (mobile devices)
+      if (navigator.share && navigator.canShare) {
+        try {
+          // Convert PDF to blob for sharing
+          const pdfBlob = doc.output('blob');
+          const fileName = `day-summary-${selectedDay.date ? format(new Date(selectedDay.date), 'yyyy-MM-dd') : 'unknown'}.pdf`;
+          
+          // Create a File object for sharing
+          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+          
+          // Check if we can share this file
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'Daily Transaction Summary',
+              text: `Daily transaction summary for ${dateStr}`,
+              files: [file]
+            });
+            
+            setSuccess('Day summary shared successfully! 📱');
+            return;
+          }
+        } catch (shareError) {
+          console.log('Web Share API failed, falling back to download:', shareError);
+        }
+      }
+
+      // Fallback to download if Web Share API is not available or fails
       const fileName = `day-summary-${selectedDay.date ? format(new Date(selectedDay.date), 'yyyy-MM-dd') : 'unknown'}.pdf`;
       doc.save(fileName);
       
@@ -1432,7 +1458,7 @@ const Home = () => {
               }
             }}
           >
-            {isMobile ? '📱 Download PDF' : 'Download PDF'}
+            {isMobile ? '📱 Share PDF' : 'Download PDF'}
           </Button>
         </DialogActions>
       </Dialog>
