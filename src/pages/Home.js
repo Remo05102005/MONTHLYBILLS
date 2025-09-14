@@ -37,6 +37,10 @@ import {
   Stack,
   Tooltip,
   Collapse,
+  List,
+  ListItem,
+  ListItemText,
+  IconButton,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -47,11 +51,14 @@ import {
   TrendingDown as TrendingDownIcon,
   Equalizer as EqualizerIcon,
   Share as ShareIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync } from '../store/transactionSlice';
 import { fetchTransactionsByDateRange } from '../firebase/transactions';
 import { auth } from '../firebase/config';
 import { generateMonthlyReport } from '../utils/reportGenerator';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -85,7 +92,10 @@ const Home = () => {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showDescription, setShowDescription] = useState(false);
+  const [dayModalOpen, setDayModalOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
   const shareRef = useRef();
+  const dayShareRef = useRef();
 
   useEffect(() => {
     if (currentUser) {
@@ -423,6 +433,219 @@ const Home = () => {
     });
   };
 
+  const handleDayClick = (dayData) => {
+    if (dayData && dayData.date) {
+      setSelectedDay(dayData);
+      setDayModalOpen(true);
+    }
+  };
+
+  const handleCloseDayModal = () => {
+    setDayModalOpen(false);
+    setSelectedDay(null);
+  };
+
+  const handleDayShare = async () => {
+    if (!selectedDay) return;
+    
+    try {
+      // Show loading state
+      setSuccess('Generating PDF...');
+      
+      // Create new PDF document
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
+      const margin = 20;
+      
+      // Helper function to format numbers
+      const formatInt = (num) => {
+        return Math.round(Number(num)).toLocaleString('en-IN', { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+      };
+      
+      // Helper function to add section title
+      const addSectionTitle = (title, y) => {
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42); // Deep navy
+        doc.setFont('helvetica', 'bold');
+        doc.text(title, margin, y);
+        
+        // Add underline
+        doc.setDrawColor(15, 23, 42);
+        doc.setLineWidth(1);
+        doc.line(margin, y + 2, margin + 80, y + 2);
+        doc.setDrawColor(59, 130, 246); // Blue accent
+        doc.setLineWidth(2);
+        doc.line(margin, y + 4, margin + 80, y + 4);
+        
+        return y + 15;
+      };
+      
+      let currentY = 30;
+      
+      // Professional header
+      doc.setFontSize(20);
+      doc.setTextColor(15, 23, 42); // Deep navy
+      doc.setFont('helvetica', 'bold');
+      const dateStr = selectedDay.date ? format(new Date(selectedDay.date), 'dd MMM yyyy') : 'Unknown Date';
+      doc.text(`Daily Transaction Summary`, pageWidth / 2, currentY, { align: 'center' });
+      currentY += 8;
+      doc.setFontSize(14);
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'normal');
+      doc.text(dateStr, pageWidth / 2, currentY, { align: 'center' });
+      currentY += 20;
+      
+      // Summary section with professional table
+      currentY = addSectionTitle('SUMMARY', currentY);
+      
+      const income = Math.round(Number(selectedDay.dayIncome));
+      const expense = Math.round(Number(selectedDay.dayExpense));
+      const balance = income - expense;
+      
+      const summaryData = [
+        ['Total Income', formatInt(income)],
+        ['Total Expenses', formatInt(expense)],
+        ['Net Balance', formatInt(balance)],
+        ['Total Transactions', selectedDay.transactions.length.toString()],
+      ];
+      
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Metric', 'Value']],
+        body: summaryData,
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [15, 23, 42], // Deep navy
+          textColor: [255, 255, 255],
+          fontSize: 11,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        styles: { 
+          fontSize: 10,
+          cellPadding: 6,
+          textColor: [15, 23, 42]
+        },
+        columnStyles: { 
+          0: { halign: 'left', fontStyle: 'bold' },
+          1: { halign: 'right', fontStyle: 'bold' }
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252] // Light gray
+        },
+        margin: { left: margin, right: margin },
+        tableLineColor: [226, 232, 240],
+        tableLineWidth: 0.5
+      });
+      
+      currentY = doc.lastAutoTable.finalY + 15;
+      
+      // Transactions section with professional table
+      currentY = addSectionTitle('TRANSACTION DETAILS', currentY);
+      
+      // Prepare transaction data
+      const transactionData = selectedDay.transactions.map(transaction => {
+        const category = transaction.subCategory ? `${transaction.category} - ${transaction.subCategory}` : transaction.category;
+        const amount = formatInt(transaction.amount);
+        const time = format(new Date(transaction.date), 'HH:mm');
+        const type = transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1);
+        const description = transaction.description || '';
+        
+        return [
+          time,
+          category,
+          type,
+          amount,
+          description
+        ];
+      });
+      
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Time', 'Category', 'Type', 'Amount', 'Description']],
+        body: transactionData,
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [59, 130, 246], // Professional blue
+          textColor: [255, 255, 255],
+          fontSize: 10,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        styles: { 
+          fontSize: 9,
+          cellPadding: 5,
+          textColor: [15, 23, 42],
+          overflow: 'linebreak',
+          cellWidth: 'wrap'
+        },
+        columnStyles: { 
+          0: { halign: 'center', cellWidth: 20 }, // Time
+          1: { halign: 'left', cellWidth: 50 },   // Category
+          2: { halign: 'center', cellWidth: 25 }, // Type
+          3: { halign: 'right', cellWidth: 30, fontStyle: 'bold' }, // Amount
+          4: { halign: 'left', cellWidth: 45 }    // Description
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252]
+        },
+        margin: { left: margin, right: margin },
+        tableLineColor: [226, 232, 240],
+        tableLineWidth: 0.5,
+        didParseCell: function(data) {
+          // Color code amounts based on transaction type
+          if (data.column.index === 3) { // Amount column
+            const transaction = selectedDay.transactions[data.row.index];
+            if (transaction.type === 'income') {
+              data.cell.styles.textColor = [46, 204, 113]; // Green
+            } else {
+              data.cell.styles.textColor = [239, 68, 68]; // Red
+            }
+          }
+          // Color code transaction type
+          if (data.column.index === 2) { // Type column
+            const transaction = selectedDay.transactions[data.row.index];
+            if (transaction.type === 'income') {
+              data.cell.styles.textColor = [46, 204, 113]; // Green
+            } else {
+              data.cell.styles.textColor = [239, 68, 68]; // Red
+            }
+          }
+        }
+      });
+      
+      // Professional footer
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        
+        // Footer line
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.5);
+        doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+        
+        // Footer text
+        doc.setFontSize(9);
+        doc.setTextColor(100, 116, 139);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, margin, pageHeight - 5);
+        doc.text('Common Man', pageWidth / 2, pageHeight - 5, { align: 'center' });
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 20, pageHeight - 5, { align: 'right' });
+      }
+      
+      // Download the PDF
+      const fileName = `day-summary-${selectedDay.date ? format(new Date(selectedDay.date), 'yyyy-MM-dd') : 'unknown'}.pdf`;
+      doc.save(fileName);
+      
+      setSuccess('Day summary PDF downloaded successfully! 📱');
+      
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      setError(`Failed to generate PDF: ${err.message}`);
+    }
+  };
+
   return (
     <Box sx={{ p: isMobile ? 2 : 3, pb: isMobile ? 10 : 3 }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
@@ -553,11 +776,25 @@ const Home = () => {
           <Box>
             {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
               <Box key={date} sx={{ mb: 2, p: 2, borderRadius: 2, backgroundColor: 'background.paper', boxShadow: 1 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{format(new Date(date), 'dd MMM yyyy')}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  <Box component="span" sx={{ color: 'success.main', fontWeight: 600 }}>Income: ₹{dayIncome.toLocaleString('en-IN')}</Box> |
-                  <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
-                </Typography>
+                <Box 
+                  sx={{ 
+                    cursor: 'pointer',
+                    p: 1,
+                    borderRadius: 1,
+                    '&:hover': { backgroundColor: 'action.hover' },
+                    mb: 1
+                  }}
+                  onClick={() => handleDayClick({ date, transactions, dayIncome, dayExpense })}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{format(new Date(date), 'dd MMM yyyy')}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    <Box component="span" sx={{ color: 'success.main', fontWeight: 600 }}>Income: ₹{dayIncome.toLocaleString('en-IN')}</Box> |
+                    <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
+                  </Typography>
+                  <Typography variant="caption" color="primary.main" sx={{ display: 'block', mt: 0.5, fontSize: '11px' }}>
+                    Tap to view all transactions
+                  </Typography>
+                </Box>
                 {transactions.map((txn) => (
                   <Box
                     key={txn.id}
@@ -882,6 +1119,321 @@ const Home = () => {
               </Fab>
             </Tooltip>
           </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Day Details Modal */}
+      <Dialog
+        open={dayModalOpen}
+        onClose={handleCloseDayModal}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+        TransitionComponent={Fade}
+        PaperProps={{ 
+          sx: { 
+            borderRadius: isMobile ? 0 : 3, 
+            overflow: 'hidden',
+            maxHeight: '90vh'
+          } 
+        }}
+        BackdropProps={{
+          onClick: (e) => {
+            if (e.target.classList.contains('MuiBackdrop-root')) {
+              handleCloseDayModal();
+            }
+          },
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          pb: 1,
+          bgcolor: 'primary.main',
+          color: 'white'
+        }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: isMobile ? '18px' : '20px' }}>
+              {selectedDay && selectedDay.date && (() => {
+                try {
+                  return format(new Date(selectedDay.date), 'dd MMM yyyy');
+                } catch (e) {
+                  return 'Invalid Date';
+                }
+              })()}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, fontSize: isMobile ? '12px' : '14px' }}>
+              {selectedDay && selectedDay.transactions.length} transaction{selectedDay && selectedDay.transactions.length !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+          <IconButton 
+            onClick={handleCloseDayModal} 
+            sx={{ color: 'white' }}
+            size="small"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0, bgcolor: 'background.paper', maxHeight: '75vh', overflow: 'auto' }}>
+          <div ref={dayShareRef} style={{ 
+            background: 'white', 
+            padding: isMobile ? '8px' : '16px',
+            minHeight: '400px',
+            maxWidth: '100%',
+            overflow: 'hidden'
+          }}>
+            {/* Day Summary Header - optimized for any number of transactions */}
+            <Box sx={{ 
+              textAlign: 'center', 
+              mb: selectedDay && selectedDay.transactions.length > 5 ? 1.5 : 2,
+              p: isMobile ? 1.2 : 2,
+              bgcolor: 'grey.50',
+              borderRadius: 2,
+              border: '1px solid #e0e0e0'
+            }}>
+              <Typography variant="h5" sx={{ 
+                fontWeight: 'bold', 
+                mb: 1,
+                fontSize: isMobile ? '16px' : '18px',
+                color: '#1976d2'
+              }}>
+                {selectedDay && selectedDay.date && (() => {
+                  try {
+                    return format(new Date(selectedDay.date), 'dd MMM yyyy');
+                  } catch (e) {
+                    return 'Invalid Date';
+                  }
+                })()}
+              </Typography>
+              
+              {/* Compact summary for many transactions, detailed for few */}
+              {selectedDay && selectedDay.transactions.length <= 5 ? (
+                <Stack 
+                  direction={isMobile ? "column" : "row"} 
+                  spacing={isMobile ? 1 : 2} 
+                  justifyContent="center" 
+                  sx={{ mb: 1 }}
+                >
+                  <Box sx={{ textAlign: 'center', minWidth: isMobile ? 'auto' : '70px' }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '11px' : '12px' }}>
+                      Income
+                    </Typography>
+                    <Typography variant="h6" color="success.main" sx={{ 
+                      fontWeight: 'bold',
+                      fontSize: isMobile ? '14px' : '16px'
+                    }}>
+                      ₹{selectedDay && Math.round(Number(selectedDay.dayIncome)).toLocaleString('en-IN')}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'center', minWidth: isMobile ? 'auto' : '70px' }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '11px' : '12px' }}>
+                      Expense
+                    </Typography>
+                    <Typography variant="h6" color="error.main" sx={{ 
+                      fontWeight: 'bold',
+                      fontSize: isMobile ? '14px' : '16px'
+                    }}>
+                      ₹{selectedDay && Math.round(Number(selectedDay.dayExpense)).toLocaleString('en-IN')}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'center', minWidth: isMobile ? 'auto' : '70px' }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '11px' : '12px' }}>
+                      Balance
+                    </Typography>
+                    <Typography 
+                      variant="h6" 
+                      sx={{ 
+                        fontWeight: 'bold',
+                        fontSize: isMobile ? '14px' : '16px',
+                        color: selectedDay && (selectedDay.dayIncome - selectedDay.dayExpense) >= 0 ? 'success.main' : 'error.main'
+                      }}
+                    >
+                      ₹{selectedDay && Math.round(Number(selectedDay.dayIncome - selectedDay.dayExpense)).toLocaleString('en-IN')}
+                    </Typography>
+                  </Box>
+                </Stack>
+              ) : (
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '11px' : '12px', mb: 0.5 }}>
+                    {selectedDay && selectedDay.transactions.length} transactions
+                  </Typography>
+                  <Typography variant="h6" sx={{ 
+                    fontWeight: 'bold',
+                    fontSize: isMobile ? '14px' : '16px',
+                    color: selectedDay && (selectedDay.dayIncome - selectedDay.dayExpense) >= 0 ? 'success.main' : 'error.main'
+                  }}>
+                    Net: ₹{selectedDay && Math.round(Number(selectedDay.dayIncome - selectedDay.dayExpense)).toLocaleString('en-IN')}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+
+            {/* Transactions List - optimized for any number of transactions */}
+            {selectedDay && selectedDay.transactions.length > 0 ? (
+              <Box sx={{ 
+                maxHeight: selectedDay.transactions.length > 10 ? '300px' : 'none',
+                overflowY: selectedDay.transactions.length > 10 ? 'auto' : 'visible'
+              }}>
+                {selectedDay.transactions.map((transaction, index) => (
+                  <Box
+                    key={transaction.id}
+                    sx={{
+                      p: isMobile ? 1 : 1.5,
+                      mb: index < selectedDay.transactions.length - 1 ? 0.5 : 0,
+                      borderRadius: 1,
+                      backgroundColor: index % 2 === 0 ? 'white' : '#fafafa',
+                      border: '1px solid #e0e0e0',
+                      borderLeft: `3px solid ${transaction.type === 'income' ? '#4caf50' : '#f44336'}`,
+                      minHeight: isMobile ? '60px' : '70px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    {/* Main transaction info - compact layout */}
+                    <Box sx={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'flex-start',
+                      width: '100%',
+                      mb: 0.3
+                    }}>
+                      <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
+                        <Typography variant="body1" sx={{ 
+                          fontWeight: 600,
+                          fontSize: isMobile ? '13px' : '14px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          lineHeight: 1.2,
+                          color: '#333'
+                        }}>
+                          {transaction.subCategory ? `${transaction.category} - ${transaction.subCategory}` : transaction.category}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ 
+                          fontSize: isMobile ? '10px' : '11px',
+                          mt: 0.1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5
+                        }}>
+                          <span>{format(new Date(transaction.date), 'HH:mm')}</span>
+                          <span>•</span>
+                          <span style={{ 
+                            color: transaction.type === 'income' ? '#4caf50' : '#f44336',
+                            fontWeight: 600,
+                            textTransform: 'capitalize'
+                          }}>
+                            {transaction.type}
+                          </span>
+                        </Typography>
+                      </Box>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 0.5,
+                        flexShrink: 0
+                      }}>
+                        <Typography 
+                          variant="h6" 
+                          sx={{ 
+                            color: transaction.type === 'income' ? 'success.main' : 'error.main',
+                            fontWeight: 'bold',
+                            fontSize: isMobile ? '13px' : '14px'
+                          }}
+                        >
+                          ₹{Math.round(Number(transaction.amount)).toLocaleString('en-IN')}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Description - only show if exists and not too many transactions */}
+                    {transaction.description && selectedDay.transactions.length <= 15 && (
+                      <Box sx={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        width: '100%',
+                        mt: 0.2
+                      }}>
+                        <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
+                          <Typography 
+                            variant="body2" 
+                            color="text.secondary" 
+                            sx={{ 
+                              fontSize: isMobile ? '10px' : '11px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.1,
+                              fontStyle: 'italic'
+                            }}
+                          >
+                            {transaction.description}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+                ))}
+              </Box>
+            ) : (
+              <Box sx={{ 
+                textAlign: 'center', 
+                py: 4,
+                color: 'text.secondary'
+              }}>
+                <Typography variant="body1" sx={{ fontSize: isMobile ? '14px' : '16px' }}>
+                  No transactions for this day
+                </Typography>
+              </Box>
+            )}
+          </div>
+        </DialogContent>
+
+        <DialogActions sx={{ 
+          p: isMobile ? 1.5 : 2, 
+          bgcolor: 'background.paper',
+          justifyContent: 'space-between',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: isMobile ? 1 : 0,
+          borderTop: '1px solid #e0e0e0'
+        }}>
+          <Button 
+            onClick={handleCloseDayModal} 
+            color="inherit"
+            sx={{ 
+              textTransform: 'none',
+              width: isMobile ? '100%' : 'auto',
+              order: isMobile ? 2 : 1,
+              minHeight: isMobile ? '44px' : '36px',
+              fontSize: isMobile ? '14px' : '13px',
+              fontWeight: 600
+            }}
+          >
+            Close
+          </Button>
+          <Button 
+            onClick={handleDayShare} 
+            variant="contained" 
+            startIcon={<ShareIcon />}
+            sx={{ 
+              textTransform: 'none',
+              width: isMobile ? '100%' : 'auto',
+              order: isMobile ? 1 : 2,
+              minHeight: isMobile ? '44px' : '36px',
+              fontSize: isMobile ? '14px' : '13px',
+              fontWeight: 600,
+              bgcolor: '#1976d2',
+              '&:hover': {
+                bgcolor: '#1565c0'
+              }
+            }}
+          >
+            {isMobile ? '📱 Download PDF' : 'Download PDF'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
