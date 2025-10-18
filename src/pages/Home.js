@@ -85,6 +85,8 @@ const Home = () => {
   const [reportTransactions, setReportTransactions] = useState([]);
   const [openReportMonthDialog, setOpenReportMonthDialog] = useState(false);
   const [selectedReportMonth, setSelectedReportMonth] = useState(new Date());
+  const [openExpenditureMonthDialog, setOpenExpenditureMonthDialog] = useState(false);
+  const [selectedExpenditureMonth, setSelectedExpenditureMonth] = useState(new Date());
   const [editTransaction, setEditTransaction] = useState(null);
   const [selectedInsight, setSelectedInsight] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -203,6 +205,84 @@ const Home = () => {
 
   const handleGenerateReport = () => {
     setOpenReportMonthDialog(true);
+  };
+
+  const handleShareReport = async (reportData, fileName) => {
+    try {
+      // Check if Web Share API is available (mobile devices)
+      if (navigator.share && navigator.canShare) {
+        try {
+          // Convert PDF to blob for sharing
+          const pdfBlob = reportData.output('blob');
+          
+          // Create a File object for sharing
+          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+          
+          // Check if we can share this file
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'Financial Report',
+              text: `Financial report for ${format(selectedReportMonth, 'MMMM yyyy')}`,
+              files: [file]
+            });
+            
+            setSuccess('Report shared successfully! 📱');
+            return;
+          }
+        } catch (shareError) {
+          console.log('Web Share API failed, falling back to download:', shareError);
+        }
+      }
+
+      // Fallback to download if Web Share API is not available or fails
+      reportData.save(fileName);
+      setSuccess('Report downloaded successfully! 📱');
+      
+    } catch (err) {
+      console.error('Share error:', err);
+      setError(`Failed to share report: ${err.message}`);
+    }
+  };
+
+  const handleGenerateExpenditureList = () => {
+    setOpenExpenditureMonthDialog(true);
+  };
+
+  const handleShareExpenditureList = async (reportData, fileName) => {
+    try {
+      // Check if Web Share API is available (mobile devices)
+      if (navigator.share && navigator.canShare) {
+        try {
+          // Convert PDF to blob for sharing
+          const pdfBlob = reportData.output('blob');
+          
+          // Create a File object for sharing
+          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+          
+          // Check if we can share this file
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'Expenditure Analysis',
+              text: `Expenditure analysis for ${format(selectedExpenditureMonth, 'MMMM yyyy')}`,
+              files: [file]
+            });
+            
+            setSuccess('Expenditure list shared successfully! 📱');
+            return;
+          }
+        } catch (shareError) {
+          console.log('Web Share API failed, falling back to download:', shareError);
+        }
+      }
+
+      // Fallback to download if Web Share API is not available or fails
+      reportData.save(fileName);
+      setSuccess('Expenditure list downloaded successfully! 📱');
+      
+    } catch (err) {
+      console.error('Share error:', err);
+      setError(`Failed to share expenditure list: ${err.message}`);
+    }
   };
 
   const handleSaveTransaction = async (transaction) => {
@@ -395,8 +475,8 @@ const Home = () => {
               const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
               setReportTransactions(txs);
               const doc = generateMonthlyReport(txs, selectedReportMonth);
-              doc.save(`financial_monthly_report_${format(selectedReportMonth, 'yyyy-MM')}.pdf`);
-              setSuccess('Monthly report generated successfully!');
+              const fileName = `financial_monthly_report_${format(selectedReportMonth, 'yyyy-MM')}.pdf`;
+              await handleShareReport(doc, fileName);
               onClose();
             } catch (err) {
               console.error('Error generating report:', err);
@@ -408,7 +488,61 @@ const Home = () => {
           color="primary" 
           variant="contained"
         >
-          Generate Report
+          Generate & Share Report
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Add ExpenditureMonthDialog component
+  const ExpenditureMonthDialog = ({ open, onClose }) => (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Select Month for Expenditure List</DialogTitle>
+      <DialogContent>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <DatePicker
+            views={["year", "month"]}
+            label="Select Month"
+            minDate={new Date('2000-01-01')}
+            maxDate={new Date('2100-12-31')}
+            value={selectedExpenditureMonth}
+            onChange={setSelectedExpenditureMonth}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                sx={{ mt: 2 }}
+              />
+            )}
+          />
+        </LocalizationProvider>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button 
+          onClick={async () => {
+            try {
+              setLoading(true);
+              const startDate = startOfMonth(selectedExpenditureMonth);
+              const endDate = endOfMonth(selectedExpenditureMonth);
+              const transactions = await fetchTransactionsByDateRange(auth.currentUser.uid, startDate, endDate);
+              const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
+              const periodLabel = format(selectedExpenditureMonth, 'MMMM yyyy');
+              const doc = generateCategoryAnalysisPDF(txs, periodLabel);
+              const fileName = `expense_category_analysis_${format(selectedExpenditureMonth, 'yyyy-MM')}.pdf`;
+              await handleShareExpenditureList(doc, fileName);
+              onClose();
+            } catch (err) {
+              console.error('Error generating expenditure list:', err);
+              setError(`Failed to generate expenditure list: ${err.message}`);
+            } finally {
+              setLoading(false);
+            }
+          }} 
+          color="primary" 
+          variant="contained"
+        >
+          Generate & Share Expenditure List
         </Button>
       </DialogActions>
     </Dialog>
@@ -767,19 +901,7 @@ const Home = () => {
               fullWidth
               variant="outlined"
               startIcon={<PdfIcon />}
-              onClick={async () => {
-                try {
-                  setLoading(true);
-                  const periodLabel = format(selectedMonth, 'MMMM yyyy');
-                  const doc = generateCategoryAnalysisPDF(filteredTransactions, periodLabel);
-                  doc.save(`expense_category_analysis_${format(selectedMonth, 'yyyy-MM')}.pdf`);
-                  setSuccess('Expense Category Analysis PDF generated!');
-                } catch (err) {
-                  setError('Failed to generate category analysis PDF.');
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              onClick={handleGenerateExpenditureList}
               disabled={loading}
               sx={{
                 borderRadius: 2,
@@ -1039,6 +1161,12 @@ const Home = () => {
       <ReportMonthDialog
         open={openReportMonthDialog}
         onClose={() => setOpenReportMonthDialog(false)}
+      />
+
+      {/* Add the ExpenditureMonthDialog to the JSX */}
+      <ExpenditureMonthDialog
+        open={openExpenditureMonthDialog}
+        onClose={() => setOpenExpenditureMonthDialog(false)}
       />
 
       {/* Transaction Details Modal */}
