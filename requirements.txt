@@ -66,33 +66,17 @@
 # web-vitals@2.1.4
 
 # ===========================================
-# ENVIRONMENT VARIABLES REQUIRED
+# ENVIRONMENT VARIABLES
 # ===========================================
-
-# Firebase Configuration
-REACT_APP_FIREBASE_API_KEY=your_firebase_api_key
-REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-REACT_APP_FIREBASE_PROJECT_ID=your_project_id
-REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-REACT_APP_FIREBASE_APP_ID=your_app_id
-
-# Google AI Configuration
-REACT_APP_GEMINI_API_KEY=your_gemini_api_key
+# See .env.example for required environment variables
+# Set these in .env file for development or Netlify dashboard for production
 
 # ===========================================
-# PRODUCTION DEPLOYMENT REQUIREMENTS
+# PRODUCTION DEPLOYMENT
 # ===========================================
-
-# Netlify Configuration
 # Build Command: npm run build
 # Publish Directory: build
 # Node Version: 18.x
-
-# Environment Variables in Netlify Dashboard:
-# - All REACT_APP_* variables must be set
-# - Firebase project must be properly configured
-# - Google AI API key must be valid and have sufficient quota
 
 # ===========================================
 # FEATURE-SPECIFIC REQUIREMENTS
