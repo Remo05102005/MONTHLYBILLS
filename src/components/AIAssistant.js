@@ -405,15 +405,92 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
     }
   };
 
-  // Copy link to clipboard
-  const copyLinkToClipboard = async () => {
+  // Share link directly
+  const shareLink = async () => {
     try {
-      await navigator.clipboard.writeText(shareableLink);
-      setSnackbarMessage('Link copied to clipboard!');
-      setSnackbarOpen(true);
+      // Check if Web Share API is available
+      if (navigator.share) {
+        await navigator.share({
+          title: `Shared Conversation: ${currentSessionForShare?.title || 'Chat Session'}`,
+          text: `Check out this conversation from my AI assistant:`,
+          url: shareableLink
+        });
+        setSnackbarMessage('Link shared successfully!');
+        setSnackbarOpen(true);
+      } else {
+        // Fallback: show message that sharing is not supported
+        setSnackbarMessage('Sharing is not supported on this device. Please copy the link manually.');
+        setSnackbarOpen(true);
+      }
     } catch (error) {
-      console.error('Error copying to clipboard:', error);
-      setSnackbarMessage('Failed to copy link');
+      if (error.name === 'AbortError') {
+        // User cancelled the share dialog
+        return;
+      }
+      console.error('Error sharing link:', error);
+      setSnackbarMessage('Failed to share link');
+      setSnackbarOpen(true);
+    }
+  };
+
+  // Direct share without opening dialog
+  const directShareSession = async (sessionId) => {
+    try {
+      // Get the session data
+      const session = await getChatSession(currentUser.uid, sessionId);
+      
+      if (!session) {
+        setSnackbarMessage('Session not found');
+        setSnackbarOpen(true);
+        return;
+      }
+
+      // Check data size before encoding
+      const dataSize = JSON.stringify(session).length;
+      if (dataSize > 2000) {
+        setSnackbarMessage('Conversation is too long to share. Please try a shorter conversation.');
+        setSnackbarOpen(true);
+        return;
+      }
+
+      // Create shareable data
+      const shareableData = {
+        sessionId: session.id,
+        sessionNumber: session.sessionNumber,
+        title: session.title,
+        createdAt: session.createdAt,
+        conversations: session.conversations || []
+      };
+
+      // Encode the data
+      const encodedData = btoa(unescape(encodeURIComponent(JSON.stringify(shareableData))));
+      
+      // Create the shareable link
+      const baseUrl = window.location.origin;
+      const shareableUrl = `${baseUrl}/shared-conversation?data=${encodedData}`;
+      
+      // Check if Web Share API is available
+      if (navigator.share) {
+        await navigator.share({
+          title: `Shared Conversation: ${session.title}`,
+          text: `Check out this conversation from my AI assistant:`,
+          url: shareableUrl
+        });
+        setSnackbarMessage('Link shared successfully!');
+        setSnackbarOpen(true);
+      } else {
+        // Fallback: show message that sharing is not supported
+        setSnackbarMessage('Sharing is not supported on this device. Please copy the link manually.');
+        setSnackbarOpen(true);
+      }
+      
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        // User cancelled the share dialog
+        return;
+      }
+      console.error('Error sharing session:', error);
+      setSnackbarMessage(`Error sharing conversation: ${error.message}`);
       setSnackbarOpen(true);
     }
   };
@@ -557,7 +634,7 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
           size="small"
           onClick={(e) => {
             e.stopPropagation();
-            generateShareableLink(session.id);
+            directShareSession(session.id);
           }}
           sx={{ color: 'primary.main' }}
           title="Share conversation"
@@ -788,7 +865,7 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
                     <Button
                       variant="outlined"
                       startIcon={<ShareIcon />}
-                      onClick={() => generateShareableLink(currentSessionId)}
+                      onClick={() => directShareSession(currentSessionId)}
                       size={isMobile ? 'medium' : 'small'}
                       sx={{ borderRadius: 2 }}
                     >
@@ -944,11 +1021,11 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
             Close
           </Button>
           <Button 
-            onClick={copyLinkToClipboard}
+            onClick={shareLink}
             variant="contained"
-            startIcon={<LinkIcon />}
+            startIcon={<ShareIcon />}
           >
-            Copy Link
+            Share {/* Direct sharing only */}
           </Button>
         </DialogActions>
       </Dialog>
