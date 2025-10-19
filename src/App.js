@@ -16,6 +16,7 @@ import { ThemeProvider, ThemeContext } from './contexts/ThemeContext';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
+import SharedConversation from './pages/SharedConversation';
 
 function AppContent() {
   const { mode } = useContext(ThemeContext);
@@ -88,6 +89,7 @@ function AppContent() {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/shared-conversation" element={<SharedConversation />} />
 
             {/* Protected Routes with Layout */}
             <Route

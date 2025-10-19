@@ -61,6 +61,9 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
+import ChitrguptaChat from '../components/AIAssistant';
+import AITestButton from '../components/AITestButton';
+import GenAITest from '../components/GenAITest';
 import { useAuth } from '../contexts/AuthContext';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -68,6 +71,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { generateCategoryAnalysisPDF } from '../utils/pdfGenerator';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import html2canvas from 'html2canvas';
 
 const Home = () => {
@@ -96,6 +100,7 @@ const Home = () => {
   const [showDescription, setShowDescription] = useState(false);
   const [dayModalOpen, setDayModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
+  const [chitrguptaOpen, setChitrguptaOpen] = useState(false);
   const shareRef = useRef();
   const dayShareRef = useRef();
 
@@ -880,7 +885,7 @@ const Home = () => {
           Quick Actions
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12}>
+          <Grid item xs={12} md={4}>
             <Button
               fullWidth
               variant="outlined"
@@ -896,7 +901,7 @@ const Home = () => {
               Monthly Report
             </Button>
           </Grid>
-          <Grid item xs={12}>
+          <Grid item xs={12} md={4}>
             <Button
               fullWidth
               variant="outlined"
@@ -910,6 +915,28 @@ const Home = () => {
               }}
             >
               Expenditure List
+            </Button>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<SmartToyIcon />}
+              onClick={() => setChitrguptaOpen(true)}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                py: 1.5,
+                background: 'linear-gradient(45deg, #9c27b0 30%, #e91e63 90%)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #7b1fa2 30%, #c2185b 90%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
+                },
+                transition: 'all 0.3s ease',
+              }}
+            >
+              AI Assistant
             </Button>
           </Grid>
         </Grid>
@@ -1098,6 +1125,7 @@ const Home = () => {
         {renderInsightContent()}
       </Box>
 
+
       <Fab
         color="primary"
         sx={{ 
@@ -1110,6 +1138,35 @@ const Home = () => {
       >
         <AddIcon />
       </Fab>
+
+      {/* Chitrgupta Chat Button */}
+      <Fab
+        color="secondary"
+        sx={{ 
+          position: 'fixed', 
+          bottom: isMobile ? 16 : 24, 
+          left: isMobile ? 16 : 24, 
+          zIndex: 1000,
+          bgcolor: 'linear-gradient(45deg, #9c27b0 30%, #e91e63 90%)',
+          '&:hover': {
+            bgcolor: 'linear-gradient(45deg, #7b1fa2 30%, #c2185b 90%)',
+            transform: 'scale(1.1)',
+          },
+          transition: 'all 0.3s ease',
+          boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
+        }}
+        onClick={() => setChitrguptaOpen(!chitrguptaOpen)}
+      >
+        <SmartToyIcon />
+      </Fab>
+
+      {/* AI Assistant */}
+        <ChitrguptaChat
+          transactions={transactions}
+          selectedMonth={selectedMonth}
+          isOpen={chitrguptaOpen}
+          onClose={() => setChitrguptaOpen(!chitrguptaOpen)}
+        />
 
       <AddTransactionModal
         open={isAddModalOpen}

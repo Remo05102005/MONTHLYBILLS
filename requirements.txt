@@ -1,0 +1,215 @@
+# Common Man - Financial Management App Requirements
+# This is a React/Node.js project, but this file documents all requirements
+
+# ===========================================
+# NODE.JS & NPM REQUIREMENTS
+# ===========================================
+# Node.js: >= 16.0.0 (Recommended: 18.x or higher)
+# npm: >= 8.0.0 (Recommended: 9.x or higher)
+
+# ===========================================
+# CORE DEPENDENCIES (package.json)
+# ===========================================
+
+# React Framework
+react==18.2.0
+react-dom==18.2.0
+react-scripts==5.0.1
+
+# UI Framework - Material-UI
+@mui/material==5.15.10
+@mui/icons-material==5.15.10
+@mui/x-date-pickers==6.19.4
+@emotion/react==11.11.3
+@emotion/styled==11.11.0
+
+# State Management
+@reduxjs/toolkit==2.2.1
+react-redux==9.1.0
+
+# Routing
+react-router-dom==6.22.1
+
+# Backend & Database
+firebase==11.7.3
+
+# AI Integration - Google Generative AI
+@google/generative-ai==0.24.1
+
+# PDF Generation
+jspdf==2.5.1
+jspdf-autotable==3.8.1
+html2canvas==1.4.1
+
+# Utilities
+date-fns==2.30.0
+recharts==2.15.2
+@react-spring/web==10.0.1
+web-vitals==2.1.4
+
+# ===========================================
+# ENVIRONMENT VARIABLES REQUIRED
+# ===========================================
+
+# Firebase Configuration
+REACT_APP_FIREBASE_API_KEY=your_firebase_api_key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+REACT_APP_FIREBASE_APP_ID=your_app_id
+
+# Google AI Configuration
+REACT_APP_GEMINI_API_KEY=your_gemini_api_key
+
+# ===========================================
+# PRODUCTION DEPLOYMENT REQUIREMENTS
+# ===========================================
+
+# Netlify Configuration
+# Build Command: npm run build
+# Publish Directory: build
+# Node Version: 18.x
+
+# Environment Variables in Netlify Dashboard:
+# - All REACT_APP_* variables must be set
+# - Firebase project must be properly configured
+# - Google AI API key must be valid and have sufficient quota
+
+# ===========================================
+# FEATURE-SPECIFIC REQUIREMENTS
+# ===========================================
+
+# AI Assistant (Chitrgupta)
+# - @google/generative-ai: For AI conversation generation
+# - Firebase: For session and conversation storage
+# - Material-UI: For chat interface components
+
+# Financial Management
+# - Firebase: For transaction storage
+# - Redux Toolkit: For state management
+# - Material-UI: For form components and data display
+
+# PDF Reports
+# - jsPDF: For PDF generation
+# - jspdf-autotable: For table formatting
+# - html2canvas: For screenshot capture
+
+# Conversation Sharing
+# - React Router DOM: For shared conversation routes
+# - Material-UI: For sharing interface
+# - Base64 encoding: Built into browsers
+
+# ===========================================
+# SECURITY REQUIREMENTS
+# ===========================================
+
+# API Keys
+# - Store all API keys in environment variables
+# - Never commit API keys to version control
+# - Use Netlify environment variables for production
+
+# Firebase Security Rules
+# - Configure proper Firebase security rules
+# - Implement user-based access control
+# - Validate data on both client and server side
+
+# ===========================================
+# PERFORMANCE REQUIREMENTS
+# ===========================================
+
+# Bundle Size Optimization
+# - Material-UI tree-shaking enabled
+# - Firebase modular imports
+# - Lazy loading for routes
+
+# Caching
+# - Firebase offline persistence
+# - Redux state persistence
+# - Service worker for PWA features
+
+# ===========================================
+# TESTING REQUIREMENTS
+# ===========================================
+
+# Unit Testing
+# - Jest: Included with react-scripts
+# - React Testing Library: Included with react-scripts
+
+# Integration Testing
+# - Firebase Emulator: For local testing
+# - Mock Service Worker: For API mocking
+
+# ===========================================
+# BROWSER SUPPORT
+# ===========================================
+
+# Production Browsers
+# - Chrome: Last 2 versions
+# - Firefox: Last 2 versions
+# - Safari: Last 2 versions
+# - Edge: Last 2 versions
+
+# Mobile Browsers
+# - iOS Safari: Last 2 versions
+# - Chrome Mobile: Last 2 versions
+# - Samsung Internet: Last 2 versions
+
+# ===========================================
+# INSTALLATION COMMANDS
+# ===========================================
+
+# Install all dependencies
+npm install
+
+# Install specific AI dependencies
+npm install @google/generative-ai
+
+# Install PDF generation dependencies
+npm install jspdf jspdf-autotable html2canvas
+
+# Install UI dependencies
+npm install @mui/material @mui/icons-material @mui/x-date-pickers
+
+# Install Firebase
+npm install firebase
+
+# ===========================================
+# TROUBLESHOOTING
+# ===========================================
+
+# Common Issues
+# 1. Firebase initialization errors: Check environment variables
+# 2. AI API errors: Verify Google AI API key and quotas
+# 3. PDF generation errors: Check jsPDF and html2canvas versions
+# 4. Material-UI styling issues: Check @emotion dependencies
+
+# Debug Commands
+# npm list                    # Check dependency versions
+# npm audit                   # Check for vulnerabilities
+# npm audit fix              # Fix vulnerabilities
+# rm -rf node_modules package-lock.json && npm install  # Clean install
+
+# ===========================================
+# MAINTENANCE
+# ===========================================
+
+# Regular Updates
+# - Update dependencies monthly
+# - Check for security vulnerabilities
+# - Test after major updates
+
+# Breaking Changes to Watch
+# - Material-UI v5 to v6 (when available)
+# - React 18 to 19 (when available)
+# - Firebase v11 to v12 (when available)
+
+# ===========================================
+# NOTES
+# ===========================================
+
+# This is a React/Node.js project, not Python
+# Dependencies are managed in package.json
+# This requirements.txt is for documentation purposes
+# Use npm install to install dependencies
+# Use npm run build to build for production
