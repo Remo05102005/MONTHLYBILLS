@@ -1,0 +1,8 @@
+# Netlify redirects for React Router
+# This ensures all routes are handled by the React app
+
+# Handle all routes by serving index.html
+/*    /index.html   200
+
+# Specific route for shared conversations
+/shared-conversation    /index.html   200
