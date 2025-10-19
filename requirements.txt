@@ -1,5 +1,6 @@
 # Common Man - Financial Management App Requirements
-# This is a React/Node.js project, but this file documents all requirements
+# This is a React/Node.js project - dependencies are managed in package.json
+# This file is for documentation purposes only
 
 # ===========================================
 # NODE.JS & NPM REQUIREMENTS
@@ -8,44 +9,61 @@
 # npm: >= 8.0.0 (Recommended: 9.x or higher)
 
 # ===========================================
-# CORE DEPENDENCIES (package.json)
+# INSTALLATION INSTRUCTIONS
 # ===========================================
+# This is a React/Node.js project, NOT a Python project
+# Dependencies are managed in package.json, not requirements.txt
+# 
+# To install dependencies, run:
+# npm install
+#
+# To build for production, run:
+# npm run build
+#
+# To start development server, run:
+# npm start
+
+# ===========================================
+# CORE DEPENDENCIES (from package.json)
+# ===========================================
+# Note: These are npm package names, not pip package names
+# The @ symbol is correct for npm scoped packages
 
 # React Framework
-react==18.2.0
-react-dom==18.2.0
-react-scripts==5.0.1
+# react@18.2.0
+# react-dom@18.2.0
+# react-scripts@5.0.1
 
 # UI Framework - Material-UI
-@mui/material==5.15.10
-@mui/icons-material==5.15.10
-@mui/x-date-pickers==6.19.4
-@emotion/react==11.11.3
-@emotion/styled==11.11.0
+# @mui/material@5.15.10
+# @mui/icons-material@5.15.10
+# @mui/x-date-pickers@6.19.4
+# @emotion/react@11.11.3
+# @emotion/styled@11.11.0
 
 # State Management
-@reduxjs/toolkit==2.2.1
-react-redux==9.1.0
+# @reduxjs/toolkit@2.2.1
+# react-redux@9.1.0
 
 # Routing
-react-router-dom==6.22.1
+# react-router-dom@6.22.1
 
 # Backend & Database
-firebase==11.7.3
+# firebase@11.7.3
 
 # AI Integration - Google Generative AI
-@google/generative-ai==0.24.1
+# @google/generative-ai@0.24.1
 
 # PDF Generation
-jspdf==2.5.1
-jspdf-autotable==3.8.1
-html2canvas==1.4.1
+# jspdf@2.5.1
+# jspdf-autotable@3.8.1
+# html2canvas@1.4.1
 
 # Utilities
-date-fns==2.30.0
-recharts==2.15.2
-@react-spring/web==10.0.1
-web-vitals==2.1.4
+# date-fns@2.30.0
+# recharts@2.15.2
+# @react-spring/web@10.0.1
+# web-vitals@2.1.4
 
 # ===========================================
 # ENVIRONMENT VARIABLES REQUIRED
