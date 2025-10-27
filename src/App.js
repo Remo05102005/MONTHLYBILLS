@@ -17,6 +17,7 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
 import SharedConversation from './pages/SharedConversation';
+import SubbaraoTimeline from './pages/SubbaraoTimeline';
 
 function AppContent() {
   const { mode } = useContext(ThemeContext);
@@ -118,6 +119,16 @@ function AppContent() {
                 <PrivateRoute>
                   <Layout>
                     <ChangePassword />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/subbarao/timeline"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <SubbaraoTimeline />
                   </Layout>
                 </PrivateRoute>
               }

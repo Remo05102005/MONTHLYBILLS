@@ -1,7 +1,7 @@
 import { ref, push, set, get, child, onValue, off, remove, update, query, orderByChild, limitToLast } from 'firebase/database';
 import { realtimeDb } from './config';
 
-// Session management for Chitrgupta chats
+// Session management for Subbarao chats
 export const createChatSession = async (userId) => {
   try {
     // Get the next session number for this user
@@ -74,6 +74,21 @@ export const saveConversation = async (userId, sessionId, query, response) => {
       updatedAt: new Date().toISOString(),
       title: sessionData.conversationCount === 0 ? newTitle : sessionData.title
     });
+
+    // Maintain a short-term memory buffer on the session (last 10 messages)
+    try {
+      const memoryRef = ref(realtimeDb, `users/${userId}/sessions/${sessionId}/memoryBuffer`);
+      const existingMemorySnapshot = await get(memoryRef);
+      const existing = existingMemorySnapshot.exists() ? existingMemorySnapshot.val() : [];
+      const newMem = existing || [];
+      newMem.push({ type: 'user', content: query, timestamp: new Date().toISOString() });
+      newMem.push({ type: 'ai', content: response, timestamp: new Date().toISOString() });
+      // Keep last 10 entries
+      const trimmed = newMem.slice(-10);
+      await set(memoryRef, trimmed);
+    } catch (memErr) {
+      console.error('Error updating session memory buffer:', memErr);
+    }
     
     return nextConversationNumber;
   } catch (error) {

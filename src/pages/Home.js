@@ -61,7 +61,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
-import ChitrguptaChat from '../components/AIAssistant';
+import SubbaraoChat from '../components/AIAssistant';
 import AITestButton from '../components/AITestButton';
 import GenAITest from '../components/GenAITest';
 import { useAuth } from '../contexts/AuthContext';
@@ -100,7 +100,7 @@ const Home = () => {
   const [showDescription, setShowDescription] = useState(false);
   const [dayModalOpen, setDayModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
-  const [chitrguptaOpen, setChitrguptaOpen] = useState(false);
+  const [subbaraoOpen, setSubbaraoOpen] = useState(false);
   const shareRef = useRef();
   const dayShareRef = useRef();
 
@@ -922,7 +922,7 @@ const Home = () => {
               fullWidth
               variant="contained"
               startIcon={<SmartToyIcon />}
-              onClick={() => setChitrguptaOpen(true)}
+              onClick={() => setSubbaraoOpen(true)}
               sx={{
                 borderRadius: 2,
                 textTransform: 'none',
@@ -1139,7 +1139,7 @@ const Home = () => {
         <AddIcon />
       </Fab>
 
-      {/* Chitrgupta Chat Button */}
+  {/* Subbarao Chat Button */}
       <Fab
         color="secondary"
         sx={{ 
@@ -1155,17 +1155,17 @@ const Home = () => {
           transition: 'all 0.3s ease',
           boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
         }}
-        onClick={() => setChitrguptaOpen(!chitrguptaOpen)}
+  onClick={() => setSubbaraoOpen(!subbaraoOpen)}
       >
         <SmartToyIcon />
       </Fab>
 
       {/* AI Assistant */}
-        <ChitrguptaChat
+        <SubbaraoChat
           transactions={transactions}
           selectedMonth={selectedMonth}
-          isOpen={chitrguptaOpen}
-          onClose={() => setChitrguptaOpen(!chitrguptaOpen)}
+          isOpen={subbaraoOpen}
+          onClose={() => setSubbaraoOpen(!subbaraoOpen)}
         />
 
       <AddTransactionModal

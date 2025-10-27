@@ -37,11 +37,12 @@ import {
   Share as ShareIcon,
   Link as LinkIcon,
 } from '@mui/icons-material';
-import { format } from 'date-fns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { format } from 'date-fns';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import genaiService from '../services/genaiService';
+import { getUserContextData } from '../services/contextService';
 import { useAuth } from '../contexts/AuthContext';
 import {
   createChatSession,
@@ -51,7 +52,7 @@ import {
   deleteChatSession,
 } from '../firebase/sessions';
 
-const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
+const SubbaraoChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { currentUser } = useAuth();
@@ -260,21 +261,36 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
     setIsLoading(true);
 
     try {
-      // Get financial data for the selected timeline
-      const filteredTransactions = getFilteredTransactions();
-      
-      console.log('Filtered transactions:', filteredTransactions.length);
-      console.log('Selected timeline:', selectedTimeline);
-      
-      // Generate AI response
-      console.log('Calling genaiService.generateFinancialInsight...');
+      // Build structured user context (XML + transactions) for the AI
+      const context = await getUserContextData(currentUser.uid, {
+        timeline: selectedTimeline,
+        customStartDate,
+        customEndDate,
+        query: messageContent,
+        userName: currentUser.displayName || currentUser.email || ''
+      });
+
+      console.log('Context transactions count:', context.transactions.length);
+      console.log('Selected timeline:', selectedTimeline, 'Context dates:', context.start, context.end);
+
+      // Generate AI response with structured XML context injection
+      console.log('Calling genaiService.generateFinancialInsight with XML context...');
+      // Build a short-term memory buffer from recent messages (last 10)
+      const recentMessages = messages.slice(-10).map(m => ({
+        type: m.type,
+        content: m.content,
+        timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : (m.timestamp || '')
+      }));
+
       const aiResponse = await genaiService.generateFinancialInsight(
         messageContent,
-        filteredTransactions,
+        context.transactions,
         {
           conversationContext: messages.length > 0 ? 
             `Previous conversation:\n${messages.slice(-6).map(m => `${m.type}: ${m.content}`).join('\n')}` : '',
           timeline: selectedTimeline,
+          userContextXML: context.xml,
+          memoryBuffer: recentMessages
         }
       );
 
@@ -400,7 +416,15 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
       
     } catch (error) {
       console.error('Error generating shareable link:', error);
-      setSnackbarMessage(`Error generating shareable link: ${error.message}`);
+      console.error('Attempting fallback: copy to clipboard if possible');
+      try {
+        const baseUrl = window.location.origin;
+        const fallbackUrl = `${baseUrl}/shared-conversation?session=${sessionId}`;
+        await navigator.clipboard.writeText(fallbackUrl);
+        setSnackbarMessage('Failed to create link; fallback link copied to clipboard');
+      } catch (clipErr) {
+        setSnackbarMessage(`Error generating shareable link: ${error.message}`);
+      }
       setSnackbarOpen(true);
     }
   };
@@ -479,8 +503,13 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
         setSnackbarMessage('Link shared successfully!');
         setSnackbarOpen(true);
       } else {
-        // Fallback: show message that sharing is not supported
-        setSnackbarMessage('Sharing is not supported on this device. Please copy the link manually.');
+        // Fallback: copy to clipboard automatically and notify
+        try {
+          await navigator.clipboard.writeText(shareableUrl);
+          setSnackbarMessage('Share link copied to clipboard');
+        } catch (err) {
+          setSnackbarMessage('Sharing is not supported on this device. Please copy the link manually.');
+        }
         setSnackbarOpen(true);
       }
       
@@ -541,6 +570,7 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
         
         <Paper
           elevation={2}
+          className="message-enter"
           sx={{
             p: isMobile ? 1.5 : 2,
             bgcolor: message.type === 'user' 
@@ -658,6 +688,14 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
 
   return (
     <>
+      {/* Animations used by chat bubbles and typing indicator */}
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes typingDots { 0% { transform: translateY(0); } 50% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
+        .message-enter { animation: fadeInUp 220ms ease both; }
+        .typing-dot { display: inline-block; width: 6px; height: 6px; margin: 0 3px; background: #666; border-radius: 50%; }
+      `}</style>
+
       <Dialog
         open={isOpen}
         onClose={onClose}
@@ -688,7 +726,7 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SmartToyIcon sx={{ fontSize: isMobile ? 24 : 28 }} />
             <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ fontWeight: 600 }}>
-              Chitrgupta
+                      Subbarao
               {currentSessionId && (
                 <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
                   Session #{chatSessions.find(s => s.id === currentSessionId)?.sessionNumber || 'New'}
@@ -788,13 +826,21 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
                       </Avatar>
                       <Paper
                         elevation={1}
+                        className="message-enter"
                         sx={{
-                          p: 2,
+                          p: 1,
                           bgcolor: '#f5f5f5',
                           borderRadius: '16px 16px 16px 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1,
                         }}
                       >
-                        <CircularProgress size={20} />
+                        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 18 }}>
+                          <span className="typing-dot" style={{ background: '#999', animation: 'typingDots 0.9s infinite' }}></span>
+                          <span className="typing-dot" style={{ background: '#777', animation: 'typingDots 0.9s 0.15s infinite' }}></span>
+                          <span className="typing-dot" style={{ background: '#666', animation: 'typingDots 0.9s 0.3s infinite' }}></span>
+                        </Box>
                       </Paper>
                     </Box>
                   </Box>
@@ -1045,4 +1091,4 @@ const ChitrguptaChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
   );
 };
 
-export default ChitrguptaChat;
+export default SubbaraoChat;

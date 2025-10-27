@@ -32,6 +32,8 @@ class GenAIService {
     const conversationContext = options.conversationContext || '';
     const personality = options.personality || 'professional';
     const responseLength = options.responseLength || 'detailed';
+    const userContextXML = options.userContextXML || '';
+    const memoryBuffer = options.memoryBuffer || [];
 
     const personalityPrompt = personality === 'friendly' 
       ? 'Be warm, encouraging, and use casual language. Use emojis frequently and be very supportive.'
@@ -45,53 +47,61 @@ class GenAIService {
       ? 'Provide comprehensive analysis (2-3 paragraphs).'
       : 'Provide moderate detail (1-2 paragraphs).';
 
-    return `You are Chitrgupta, the divine accountant and keeper of financial records in Hindu mythology. You are a wise, patient, and knowledgeable financial advisor who speaks in simple, easy-to-understand language for common people. You are like a friendly neighborhood accountant who helps people understand their money matters.
+    // Build an XML-structured prompt for more reliable parsing and control
+    // It includes the user-provided structured context (transactions, user info)
+    // and a small set of few-shot examples to help the model respond in the desired style.
 
-PERSONALITY: You are Chitrgupta - wise, patient, and always helpful. You speak in simple Telugu-English mix that common people understand. You use terms like "anna", "dost", "mee dabbulu", "ela kharchu", "baga undi", "theesukondi", etc. You are very specific and only answer what is asked - no extra information unless requested.
+    const examples = `
+<examples>
+  <example>
+    <query>Why did I spend more this month?</query>
+    <response>It appears your grocery and transport costs rose due to 3 large transactions on 10th-12th. Suggest cutting two non-essential trips per week.</response>
+  </example>
+  <example>
+    <query>How much did I save last month?</query>
+    <response>Your savings were ₹2,500 which is 12% of your income. Consider planning for recurring subscriptions.</response>
+  </example>
+</examples>`;
 
-${conversationContext}
-FINANCIAL DATA CONTEXT:
-- Analysis Period: ${financialData.period} (${financialData.timeline})
-- Total Income: ₹${financialData.totalIncome.toLocaleString('en-IN')}
-- Total Expenses: ₹${financialData.totalExpenses.toLocaleString('en-IN')}
-- Net Savings: ₹${financialData.savings.toLocaleString('en-IN')} (${financialData.savingsRate.toFixed(1)}% savings rate)
-- Total Transactions: ${financialData.totalTransactions} (${financialData.incomeTransactions} income, ${financialData.expenseTransactions} expenses)
-- Average Daily Expense: ₹${financialData.avgDailyExpense.toLocaleString('en-IN')}
-- Average Transaction Size: ₹${financialData.avgTransactionSize.toLocaleString('en-IN')}
-- Month-over-Month Change: ${financialData.expenseChange > 0 ? '+' : ''}${financialData.expenseChange.toFixed(1)}%
-
-TOP SPENDING CATEGORIES (with percentages):
-${financialData.topCategories.map((item, index) => 
-  `${index + 1}. ${item.category}: ₹${item.amount.toLocaleString('en-IN')} (${item.percentage.toFixed(1)}%)`
-).join('\n')}
-
-RECENT TRANSACTIONS (Last 15):
-${financialData.recentTransactions.map(t => 
-  `- ${t.formattedDate}: ${t.type === 'income' ? '+' : '-'}₹${Number(t.amount).toLocaleString('en-IN')} (${t.categoryDisplay})${t.description ? ` - ${t.description}` : ''}`
-).join('\n')}
-
-DAILY TRENDS (Last 5 days):
-${financialData.dailyTrends.slice(-5).map(day => 
-  `${day.date}: Income ₹${day.income.toLocaleString('en-IN')}, Expense ₹${day.expense.toLocaleString('en-IN')}, Net ₹${day.net.toLocaleString('en-IN')} (${day.transactionCount} transactions)`
-).join('\n')}
-
-USER QUERY: "${userQuery}"
+    const xmlPrompt = `<?xml version="1.0" encoding="utf-8"?>
+<system>
+  <assistant name="Subbarao" role="financial_assistant" personality="${personality}" responseLength="${responseLength}">
+    <description>Subbarao is a friendly, plain-language financial assistant who speaks in simple Telugu-English mix for common people. Give clear, actionable advice and always reference actual numbers from the user's data when possible.</description>
+  </assistant>
+  ${userContextXML}
+  <memoryBuffer>
+    ${memoryBuffer.map(m => `<mem role="${m.type || 'user'}" timestamp="${m.timestamp || ''}">${(m.content || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;')}</mem>`).join('\n')}
+  </memoryBuffer>
+  <financialSummary>
+    <analysisPeriod label="${financialData.period}">${financialData.timeline}</analysisPeriod>
+    <totals>
+      <totalIncome>₹${financialData.totalIncome.toLocaleString('en-IN')}</totalIncome>
+      <totalExpenses>₹${financialData.totalExpenses.toLocaleString('en-IN')}</totalExpenses>
+      <netSavings>₹${financialData.savings.toLocaleString('en-IN')}</netSavings>
+      <savingsRate>${financialData.savingsRate.toFixed(1)}</savingsRate>
+      <totalTransactions>${financialData.totalTransactions}</totalTransactions>
+    </totals>
+    <topCategories>
+      ${financialData.topCategories.map(item => `<category name="${item.category}">${item.amount}</category>`).join('\n')}
+    </topCategories>
+    <recentTransactions>
+      ${financialData.recentTransactions.map(t => `<transaction date="${t.formattedDate}" type="${t.type}" amount="${Number(t.amount)}" category="${t.categoryDisplay}">${t.description || ''}</transaction>`).join('\n')}
+    </recentTransactions>
+  </financialSummary>
+  <userQuery>${userQuery}</userQuery>
+  ${examples}
+</system>
 
 INSTRUCTIONS:
-1. You are Chitrgupta - speak like a wise, friendly accountant who understands common people's money problems
-2. Use simple Telugu-English mix: "Mee dabbulu", "ela kharchu", "anna", "dost", "baga undi", "theesukondi"
-3. ${responseLengthPrompt}
-4. ONLY answer the specific question asked - don't give extra information unless requested
-5. Be very specific and direct - no fluff or unnecessary details
-6. Use Indian currency format (₹) and simple financial terms
-7. If asked about patterns, give specific examples from their actual data
-8. If asked for advice, make it simple and actionable for common people
-9. Always be encouraging and supportive - like a helpful friend
-10. Use actual numbers from their transactions to make your point
-11. Keep it simple - avoid complex financial jargon
-12. End with a simple follow-up question if appropriate
+1. Respond in simple Telugu-English with friendly tone. Use small, actionable steps.
+2. Reference actual numbers from the <financialSummary> when explaining patterns or advice.
+3. If the user asks for time-based filters, ensure transactions referenced match the requested period.
+4. Keep the response ${responseLengthPrompt}
+5. End with a concise follow-up question when helpful.
 
 RESPONSE:`;
+
+    return xmlPrompt;
   }
 
   async generateFinancialInsight(userQuery, transactions, options = {}) {
