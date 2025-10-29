@@ -19,6 +19,8 @@ import {
   Person as PersonIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
+import { ref, get } from 'firebase/database';
+import { realtimeDb } from '../firebase/config';
 
 const SharedConversation = () => {
   const theme = useTheme();
@@ -28,12 +30,41 @@ const SharedConversation = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const loadSharedConversation = () => {
+    const loadSharedConversation = async () => {
       try {
         // Get the data from URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const encodedData = urlParams.get('data');
-        
+        const shareId = urlParams.get('share');
+
+        if (shareId) {
+          // Load the shared payload from the realtime DB
+          try {
+            const shareRef = ref(realtimeDb, `public_shares/${shareId}`);
+            const snapshot = await get(shareRef);
+            if (!snapshot.exists()) {
+              setError('Shared conversation not found or has been removed.');
+              setLoading(false);
+              return;
+            }
+            const shareRecord = snapshot.val();
+            const decodedData = shareRecord.payload || shareRecord.data;
+            if (!decodedData || !decodedData.conversations) {
+              setError('Invalid shared conversation payload.');
+              setLoading(false);
+              return;
+            }
+            setConversationData(decodedData);
+            setLoading(false);
+            return;
+          } catch (dbErr) {
+            console.error('Error fetching shared conversation from DB:', dbErr);
+            setError('Failed to load shared conversation. Please try again later.');
+            setLoading(false);
+            return;
+          }
+        }
+
         if (!encodedData) {
           setError('No conversation data found in the link');
           setLoading(false);

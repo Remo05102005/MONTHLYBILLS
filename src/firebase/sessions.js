@@ -26,7 +26,10 @@ export const createChatSession = async (userId) => {
       title: `Chat Session ${nextSessionNumber}`,
       conversations: {},
       conversationCount: 0,
-      isActive: true
+      isActive: true,
+      timeline: null,
+      customStartDate: null,
+      customEndDate: null
     };
     
     await set(newSessionRef, sessionData);
@@ -37,7 +40,7 @@ export const createChatSession = async (userId) => {
   }
 };
 
-export const saveConversation = async (userId, sessionId, query, response) => {
+export const saveConversation = async (userId, sessionId, query, response, timelineData = null) => {
   try {
     // Get current session to determine next conversation number
     const sessionRef = ref(realtimeDb, `users/${userId}/sessions/${sessionId}`);
@@ -69,11 +72,21 @@ export const saveConversation = async (userId, sessionId, query, response) => {
       ? query.substring(0, 30) + '...'
       : query;
     
-    await update(sessionRef, { 
+    // Prepare update data
+    const updateData = {
       conversationCount: nextConversationNumber,
       updatedAt: new Date().toISOString(),
       title: sessionData.conversationCount === 0 ? newTitle : sessionData.title
-    });
+    };
+    
+    // If first conversation, store timeline data for session
+    if (sessionData.conversationCount === 0 && timelineData) {
+      updateData.timeline = timelineData.timeline;
+      updateData.customStartDate = timelineData.customStartDate;
+      updateData.customEndDate = timelineData.customEndDate;
+    }
+    
+    await update(sessionRef, updateData);
 
     // Maintain a short-term memory buffer on the session (last 10 messages)
     try {
@@ -225,4 +238,25 @@ export const listenToChatSession = (userId, sessionId, callback) => {
   });
   
   return unsubscribe;
+};
+
+// Create a public share entry for a session's data so we can share a short link
+export const createPublicShare = async (userId, sessionId, payload) => {
+  try {
+    const sharesRef = ref(realtimeDb, `public_shares`);
+    const newShareRef = push(sharesRef);
+
+    const shareData = {
+      owner: userId,
+      sessionId: sessionId,
+      payload: payload,
+      createdAt: new Date().toISOString()
+    };
+
+    await set(newShareRef, shareData);
+    return newShareRef.key;
+  } catch (error) {
+    console.error('Error creating public share:', error);
+    throw error;
+  }
 };

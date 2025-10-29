@@ -133,6 +133,16 @@ function AppContent() {
                 </PrivateRoute>
               }
             />
+            <Route
+              path="/chat/timeline"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <SubbaraoTimeline />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
           </Routes>
         </Router>
       </AuthProvider>
