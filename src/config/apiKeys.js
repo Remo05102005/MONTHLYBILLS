@@ -1,6 +1,9 @@
 // API Keys Configuration
-// Use environment variable for production safety
-export const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || 'AIzaSyDyawsrxqlkjsusZMXvqg0ZxLmddbNseFo';
+export const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+
+if (!GEMINI_API_KEY) {
+  console.error('REACT_APP_GEMINI_API_KEY is not set. Please set it in your .env file or Netlify environment variables.');
+}
 
 // Instructions for setting up the API key:
 // 1. Get your Gemini API key from: https://makersuite.google.com/app/apikey
