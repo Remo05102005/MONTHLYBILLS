@@ -10,7 +10,7 @@ if (!GEMINI_API_KEY) {
 // 2. Create a .env file in the root directory
 // 3. Add: REACT_APP_GEMINI_API_KEY=your_actual_api_key_here
 // 4. For production (Netlify), add the environment variable in Netlify dashboard
-// 5. Restart the development server
+// 5. Restart the development server.
 
 export default {
   GEMINI_API_KEY,
