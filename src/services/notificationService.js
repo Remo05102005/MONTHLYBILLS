@@ -10,13 +10,17 @@ let Capacitor = null;
 // Check if running in Capacitor
 const isCapacitor = () => {
   try {
-    // Dynamic import to avoid issues in web environment
-    if (typeof window !== 'undefined' && window.Capacitor) {
-      Capacitor = window.Capacitor;
-      return true;
+    // Check for Capacitor global object
+    if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform) {
+      return window.Capacitor.isNativePlatform();
+    }
+    // Fallback: check for capacitor user agent or other indicators
+    if (typeof navigator !== 'undefined' && navigator.userAgent) {
+      return navigator.userAgent.includes('Capacitor');
     }
     return false;
   } catch (e) {
+    console.warn('Error detecting Capacitor:', e);
     return false;
   }
 };
