@@ -17,6 +17,7 @@ import {
   Menu as MenuIcon,
   Home as HomeIcon,
   Person as PersonIcon,
+  CheckCircle as TodoIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { getData } from '../firebase/database';
@@ -44,6 +45,7 @@ const Layout = ({ children }) => {
 
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
+    { text: 'Todo', icon: <TodoIcon />, path: '/todo' },
     { text: 'Profile', icon: <PersonIcon />, path: '/profile' },
   ];
 
@@ -147,4 +149,4 @@ const Layout = ({ children }) => {
   );
 };
 
-export default Layout; 
+export default Layout;

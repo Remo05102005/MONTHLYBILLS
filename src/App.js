@@ -18,6 +18,7 @@ import Home from './pages/Home';
 import Profile from './pages/Profile';
 import SharedConversation from './pages/SharedConversation';
 import SubbaraoTimeline from './pages/SubbaraoTimeline';
+import TodoList from './pages/TodoList';
 
 function AppContent() {
   const { mode } = useContext(ThemeContext);
@@ -104,6 +105,16 @@ function AppContent() {
               }
             />
             <Route
+              path="/todo"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <TodoList />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
               path="/profile"
               element={
                 <PrivateRoute>
@@ -160,4 +171,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;
