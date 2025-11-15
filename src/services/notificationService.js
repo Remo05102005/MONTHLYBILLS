@@ -2,6 +2,7 @@ import { getToken, onMessage } from 'firebase/messaging';
 import { messaging } from '../firebase/config';
 import { ref, set, get } from 'firebase/database';
 import { realtimeDb } from '../firebase/config';
+import { auth } from '../firebase/config';
 
 // Capacitor imports (conditionally loaded)
 let PushNotifications = null;
@@ -216,8 +217,20 @@ class NotificationService {
   }
 
   // Show reminder notification
-  showReminderNotification(todo) {
+  async showReminderNotification(todo) {
     if (Notification.permission !== 'granted') return;
+
+    // First, try to send push notification to FCM (works even when app is closed/not running)
+    try {
+      const userId = auth?.currentUser?.uid;
+      if (userId) {
+        await this.sendPushNotification(userId, todo, {
+          priorityEmoji: todo.priority === 'high' ? '🔴' : todo.priority === 'medium' ? '🟡' : '🟢'
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to send push notification:', error);
+    }
 
     // Enhanced notification content based on priority
     const priorityEmoji = {
@@ -481,16 +494,36 @@ class NotificationService {
         }
       };
 
-      // This would typically be sent from your server
-      // For now, we'll log it - in production, you'd call your FCM API endpoint
-      console.log('Push notification payload prepared:', payload);
+      // Actually send the notification via FCM API
+      const serverKey = process.env.REACT_APP_FCM_SERVER_KEY;
+      if (!serverKey) {
+        console.error('REACT_APP_FCM_SERVER_KEY not set. Cannot send push notifications.');
+        return false;
+      }
 
-      // In a real implementation, you'd send this to your server:
-      // await fetch('/api/send-notification', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(payload)
-      // });
+      try {
+        const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `key=${serverKey}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error('FCM API error:', response.status, errorData);
+          return false;
+        }
+
+        const result = await response.json();
+        console.log('Push notification sent successfully:', result);
+        return true;
+      } catch (error) {
+        console.error('Error sending push notification via FCM:', error);
+        return false;
+      }
 
       return true;
     } catch (error) {

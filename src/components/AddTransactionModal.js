@@ -104,8 +104,8 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
     }
     if (!amount) {
       newErrors.amount = 'Amount is required';
-    } else if (isNaN(amount) || parseFloat(amount) <= 0) {
-      newErrors.amount = 'Please enter a valid positive number';
+    } else if (isNaN(amount) || parseFloat(amount) < 0) {
+      newErrors.amount = 'Please enter a valid amount (0 or greater)';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -295,4 +295,4 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
   );
 };
 
-export default AddTransactionModal; 
+export default AddTransactionModal;

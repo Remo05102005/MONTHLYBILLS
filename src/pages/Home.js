@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { fetchTodos } from '../store/todoSlice';
 import {
   Box,
   Typography,
@@ -81,6 +82,7 @@ const Home = () => {
   const dispatch = useDispatch();
   const { currentUser } = useAuth();
   const transactions = useSelector(state => state.transactions.transactions);
+  const todos = useSelector(state => state.todos.todos);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -107,6 +109,7 @@ const Home = () => {
   useEffect(() => {
     if (currentUser) {
       dispatch(fetchTransactions());
+      dispatch(fetchTodos());
     } else {
       dispatch(setTransactions([]));
     }
@@ -207,6 +210,38 @@ const Home = () => {
       };
     }
   }, [dailyTransactions]);
+
+  // Task statistics
+  const taskStatistics = useMemo(() => {
+    if (!todos || todos.length === 0) {
+      return { upcomingCount: 0, pendingCount: 0, missingCount: 0 };
+    }
+
+    const now = new Date();
+    const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    let upcomingCount = 0;
+    let pendingCount = 0;
+    let missingCount = 0;
+
+    todos.forEach(todo => {
+      if (todo.completed) return; // Skip completed tasks
+
+      if (todo.dueDate) {
+        const dueDate = new Date(todo.dueDate);
+        if (dueDate < now) {
+          missingCount++; // Overdue/missing
+        } else if (dueDate <= next7Days) {
+          upcomingCount++; // Due within next 7 days
+        }
+        // Tasks due after 7 days are not counted in upcoming
+      } else {
+        pendingCount++; // No due date - pending
+      }
+    });
+
+    return { upcomingCount, pendingCount, missingCount };
+  }, [todos]);
 
   const handleGenerateReport = () => {
     setOpenReportMonthDialog(true);
@@ -879,6 +914,67 @@ const Home = () => {
           />
         </Grid>
       </Grid>
+
+      {/* Task Notification Banner */}
+      {(taskStatistics.missingCount > 0 || taskStatistics.upcomingCount > 0 || taskStatistics.pendingCount > 0) && (
+        <Box sx={{ mt: 3, mb: 3 }}>
+          <Card
+            sx={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              cursor: 'pointer',
+              '&:hover': { transform: 'translateY(-2px)', transition: 'transform 0.2s' }
+            }}
+            onClick={() => navigate('/todo')}
+          >
+            <CardContent sx={{ pb: '16px !important' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    📋 Task Reminder
+                  </Typography>
+                  <Typography variant="body1">
+                    {taskStatistics.missingCount > 0 && `${taskStatistics.missingCount} overdue task${taskStatistics.missingCount !== 1 ? 's' : ''}`}
+                    {taskStatistics.missingCount > 0 && taskStatistics.upcomingCount > 0 && ', '}
+                    {taskStatistics.upcomingCount > 0 && `${taskStatistics.upcomingCount} upcoming task${taskStatistics.upcomingCount !== 1 ? 's' : ''}`}
+                    {((taskStatistics.missingCount > 0 || taskStatistics.upcomingCount > 0) && taskStatistics.pendingCount > 0) && ', '}
+                    {taskStatistics.pendingCount > 0 && `${taskStatistics.pendingCount} pending task${taskStatistics.pendingCount !== 1 ? 's' : ''}`}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8, mt: 1, display: 'block' }}>
+                    Click to manage your tasks
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  {taskStatistics.missingCount > 0 && (
+                    <Chip
+                      label={`${taskStatistics.missingCount} missing`}
+                      color="error"
+                      variant="outlined"
+                      sx={{ color: 'white', borderColor: 'error.light', fontWeight: 'bold' }}
+                    />
+                  )}
+                  {taskStatistics.upcomingCount > 0 && (
+                    <Chip
+                      label={`${taskStatistics.upcomingCount} upcoming`}
+                      color="warning"
+                      variant="outlined"
+                      sx={{ color: 'white', borderColor: 'warning.light', fontWeight: 'bold' }}
+                    />
+                  )}
+                  {taskStatistics.pendingCount > 0 && (
+                    <Chip
+                      label={`${taskStatistics.pendingCount} pending`}
+                      color="info"
+                      variant="outlined"
+                      sx={{ color: 'white', borderColor: 'info.light', fontWeight: 'bold' }}
+                    />
+                  )}
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
 
       <Box sx={{ mt: 4, mb: 3 }}>
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
@@ -1651,4 +1747,4 @@ const Home = () => {
   );
 };
 
-export default Home; 
+export default Home;
