@@ -1,6 +1,6 @@
 // Firebase Messaging Service Worker
-importScripts('https://www.gstatic.com/firebasejs/11.7.3/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/11.7.3/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
 // Initialize Firebase in the service worker
 firebase.initializeApp({
@@ -14,93 +14,107 @@ firebase.initializeApp({
   measurementId: "G-PR73BKNLVN"
 });
 
-const messaging = firebase.messaging();
+let messaging;
+
+// Initialize messaging with error handling
+try {
+  messaging = firebase.messaging();
+  console.log('Firebase messaging initialized successfully in service worker');
+} catch (error) {
+  console.error('Failed to initialize Firebase messaging:', error);
+  // Create a mock messaging object to prevent errors
+  messaging = {
+    onBackgroundMessage: () => {}
+  };
+}
 
 // Handle background messages
-messaging.onBackgroundMessage((payload) => {
-  console.log('Received background message:', payload);
+if (messaging && messaging.onBackgroundMessage) {
+  messaging.onBackgroundMessage((payload) => {
+    console.log('Received background message:', payload);
 
-  const todoData = payload.data || {};
-  const priority = todoData.priority || 'medium';
+    const todoData = payload.data || {};
+    const priority = todoData.priority || 'medium';
 
-  // Enhanced notification content for background messages
-  const priorityEmoji = {
-    high: '🔴',
-    medium: '🟡',
-    low: '🟢'
-  };
+    // Enhanced notification content for background messages
+    const priorityEmoji = {
+      high: '🔴',
+      medium: '🟡',
+      low: '🟢'
+    };
 
-  const notificationTitle = `${priorityEmoji[priority] || '📝'} COMMON MAN`;
+    const notificationTitle = `${priorityEmoji[priority] || '📝'} COMMON MAN`;
 
-  // Build rich notification body for background
-  let notificationBody = `⏰ ${payload.notification?.body || 'You have a reminder'}`;
+    // Build rich notification body for background
+    let notificationBody = `⏰ ${payload.notification?.body || 'You have a reminder'}`;
 
-  // Add additional context if available
-  if (todoData.category) {
-    notificationBody += `\n🏷️ ${todoData.category}`;
-  }
-
-  // Priority-specific notification settings for background
-  const getBackgroundNotificationSettings = (priority) => {
-    switch (priority) {
-      case 'high':
-        return {
-          icon: '/logo192.png',
-          badge: '/favicon.ico',
-          tag: `bg-todo-high-${todoData.todoId}`,
-          requireInteraction: true,
-          silent: false,
-          actions: [
-            { action: 'complete', title: '✅ Mark Complete' },
-            { action: 'view', title: '👁️ View Details' },
-            { action: 'snooze', title: '⏰ Snooze 1h' }
-          ]
-        };
-      case 'medium':
-        return {
-          icon: '/logo192.png',
-          badge: '/favicon.ico',
-          tag: `bg-todo-medium-${todoData.todoId}`,
-          requireInteraction: false,
-          silent: false,
-          actions: [
-            { action: 'complete', title: '✅ Mark Complete' },
-            { action: 'view', title: '👁️ View Details' }
-          ]
-        };
-      default:
-        return {
-          icon: '/logo192.png',
-          badge: '/favicon.ico',
-          tag: `bg-todo-${todoData.todoId}`,
-          requireInteraction: false,
-          silent: true,
-          actions: [
-            { action: 'view', title: '👁️ View Todo' }
-          ]
-        };
+    // Add additional context if available
+    if (todoData.category) {
+      notificationBody += `\n🏷️ ${todoData.category}`;
     }
-  };
 
-  const notificationOptions = {
-    body: notificationBody,
-    ...getBackgroundNotificationSettings(priority),
-    data: {
-      todoId: todoData.todoId,
-      priority: priority,
-      url: '/todo',
-      timestamp: Date.now(),
-      source: 'background'
-    },
-    // Enhanced visual options
-    lang: 'en-US',
-    dir: 'ltr',
-    // Add vibration pattern for mobile devices
-    vibrate: priority === 'high' ? [200, 100, 200, 100, 200] : priority === 'medium' ? [100, 50, 100] : undefined
-  };
+    // Priority-specific notification settings for background
+    const getBackgroundNotificationSettings = (priority) => {
+      switch (priority) {
+        case 'high':
+          return {
+            icon: '/logo192.png',
+            badge: '/favicon.ico',
+            tag: `bg-todo-high-${todoData.todoId}`,
+            requireInteraction: true,
+            silent: false,
+            actions: [
+              { action: 'complete', title: '✅ Mark Complete' },
+              { action: 'view', title: '👁️ View Details' },
+              { action: 'snooze', title: '⏰ Snooze 1h' }
+            ]
+          };
+        case 'medium':
+          return {
+            icon: '/logo192.png',
+            badge: '/favicon.ico',
+            tag: `bg-todo-medium-${todoData.todoId}`,
+            requireInteraction: false,
+            silent: false,
+            actions: [
+              { action: 'complete', title: '✅ Mark Complete' },
+              { action: 'view', title: '👁️ View Details' }
+            ]
+          };
+        default:
+          return {
+            icon: '/logo192.png',
+            badge: '/favicon.ico',
+            tag: `bg-todo-${todoData.todoId}`,
+            requireInteraction: false,
+            silent: true,
+            actions: [
+              { action: 'view', title: '👁️ View Todo' }
+            ]
+          };
+      }
+    };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
-});
+    const notificationOptions = {
+      body: notificationBody,
+      ...getBackgroundNotificationSettings(priority),
+      data: {
+        todoId: todoData.todoId,
+        priority: priority,
+        url: '/todo',
+        timestamp: Date.now(),
+        source: 'background'
+      },
+      // Enhanced visual options
+      lang: 'en-US',
+      dir: 'ltr',
+      // Add vibration pattern for mobile devices
+      vibrate: priority === 'high' ? [200, 100, 200, 100, 200] : priority === 'medium' ? [100, 50, 100] : undefined
+    };
+
+    self.registration.showNotification(notificationTitle, notificationOptions);
+  });
+}
 
 // Handle notification click
 self.addEventListener('notificationclick', (event) => {
@@ -180,17 +194,22 @@ self.addEventListener('notificationclick', (event) => {
 
 // Store notification actions for the main app to handle
 function storeNotificationAction(action, todoId, extraData = {}) {
-  const actions = JSON.parse(localStorage.getItem('pendingNotificationActions') || '[]');
-  actions.push({
-    action,
-    todoId,
-    timestamp: Date.now(),
-    ...extraData
-  });
+  try {
+    const actions = JSON.parse(localStorage.getItem('pendingNotificationActions') || '[]');
+    actions.push({
+      action,
+      todoId,
+      timestamp: Date.now(),
+      ...extraData
+    });
 
-  // Keep only recent actions (last 24 hours)
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const recentActions = actions.filter(a => a.timestamp > oneDayAgo);
+    // Keep only recent actions (last 24 hours)
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const recentActions = actions.filter(a => a.timestamp > oneDayAgo);
 
-  localStorage.setItem('pendingNotificationActions', JSON.stringify(recentActions));
+    localStorage.setItem('pendingNotificationActions', JSON.stringify(recentActions));
+    console.log('Notification action stored:', { action, todoId });
+  } catch (error) {
+    console.error('Error storing notification action:', error);
+  }
 }

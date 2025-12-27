@@ -44,6 +44,8 @@ import {
   RefreshIndicator,
   SwipeableList,
   SwipeableListItem,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -94,12 +96,12 @@ const TodoList = () => {
   const listRef = useRef(null);
   const pullRefreshRef = useRef(null);
 
-  // Form data with advanced fields
+  // Form data - simplified
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     completed: false,
-    priority: 'medium',
+    notificationsEnabled: true,
     category: 'personal',
     dueDate: null,
     reminderDate: null,
@@ -214,7 +216,7 @@ const TodoList = () => {
         title: todo.title || '',
         description: todo.description || '',
         completed: todo.completed || false,
-        priority: todo.priority || 'medium',
+        notificationsEnabled: todo.notificationsEnabled !== false, // default true
         category: todo.category || 'personal',
         dueDate: todo.dueDate ? new Date(todo.dueDate) : null,
         reminderDate: todo.reminderDate ? new Date(todo.reminderDate) : null,
@@ -225,7 +227,7 @@ const TodoList = () => {
         title: '',
         description: '',
         completed: false,
-        priority: 'medium',
+        notificationsEnabled: true,
         category: 'personal',
         dueDate: null,
         reminderDate: null,
@@ -241,7 +243,7 @@ const TodoList = () => {
       title: '',
       description: '',
       completed: false,
-      priority: 'medium',
+      notificationsEnabled: true,
       category: 'personal',
       dueDate: null,
       reminderDate: null,
@@ -350,7 +352,7 @@ const TodoList = () => {
         mb: 2,
         borderRadius: 2,
         boxShadow: isMobile ? 1 : 2,
-        border: overdueTodos > 0 && !isCompleted ? '2px solid #f44336' : 'none',
+        border: todo.dueDate && new Date(todo.dueDate) < new Date() && !isCompleted ? '2px solid #f44336' : 'none',
         backgroundColor: isCompleted ? 'grey.50' : 'white',
       }}
     >
@@ -378,12 +380,13 @@ const TodoList = () => {
                 {todo.title}
               </Typography>
 
-              {todo.priority && (
+              {/* Notification status indicator */}
+              {todo.notificationsEnabled !== false && todo.reminderDate && (
                 <Chip
-                  icon={getPriorityIcon(todo.priority)}
-                  label={todo.priority}
+                  icon={<ScheduleIcon />}
+                  label="🔔"
                   size="small"
-                  color={getPriorityColor(todo.priority)}
+                  color="primary"
                   variant="outlined"
                 />
               )}
@@ -394,7 +397,7 @@ const TodoList = () => {
                 variant="body2"
                 color="text.secondary"
                 sx={{
-                  mb: 2,
+                  mb: 1,
                   display: '-webkit-box',
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: 'vertical',
@@ -408,8 +411,12 @@ const TodoList = () => {
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
               {todo.category && (
                 <Chip
-                  icon={<CategoryIcon />}
-                  label={todo.category}
+                  label={
+                    todo.category === 'personal' ? '🏠 Personal' :
+                    todo.category === 'work' ? '💼 Work' :
+                    todo.category === 'shopping' ? '🛒 Shopping' :
+                    todo.category === 'health' ? '❤️ Health' : todo.category
+                  }
                   size="small"
                   variant="outlined"
                   color="primary"
@@ -418,18 +425,16 @@ const TodoList = () => {
 
               {todo.dueDate && (
                 <Chip
-                  icon={<DateRangeIcon />}
-                  label={`Due: ${format(new Date(todo.dueDate), 'dd MMM yyyy')}`}
+                  label={`📅 ${format(new Date(todo.dueDate), 'dd MMM, hh:mm a')}`}
                   size="small"
                   color={new Date(todo.dueDate) < new Date() && !isCompleted ? 'error' : 'default'}
                   variant="outlined"
                 />
               )}
 
-              {todo.reminderDate && (
+              {todo.reminderDate && todo.notificationsEnabled !== false && (
                 <Chip
-                  icon={<ScheduleIcon />}
-                  label={format(new Date(todo.reminderDate), 'dd MMM yyyy HH:mm:ss')}
+                  label={`🔔 ${format(new Date(todo.reminderDate), 'dd MMM, hh:mm a')}`}
                   size="small"
                   color="info"
                   variant="outlined"
@@ -581,7 +586,7 @@ const TodoList = () => {
         <Card sx={{ mb: 3, borderRadius: 2 }}>
           <CardContent>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} sm={6}>
+              <Grid item xs={12} sm={8}>
                 <TextField
                   fullWidth
                   placeholder="Search todos..."
@@ -597,22 +602,7 @@ const TodoList = () => {
                   size="small"
                 />
               </Grid>
-              <Grid item xs={6} sm={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Priority</InputLabel>
-                  <Select
-                    value={filterPriority}
-                    label="Priority"
-                    onChange={(e) => setFilterPriority(e.target.value)}
-                  >
-                    <MenuItem value="all">All Priorities</MenuItem>
-                    <MenuItem value="high">High</MenuItem>
-                    <MenuItem value="medium">Medium</MenuItem>
-                    <MenuItem value="low">Low</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={3}>
+              <Grid item xs={12} sm={4}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Category</InputLabel>
                   <Select
@@ -774,7 +764,7 @@ const TodoList = () => {
         <AddIcon />
       </Fab>
 
-      {/* Add/Edit Todo Bottom Sheet (Mobile) or Dialog (Desktop) */}
+      {/* Add/Edit Todo Bottom Sheet (Mobile) or Dialog (Desktop) - SIMPLIFIED */}
       {isMobile ? (
         <SwipeableDrawer
           anchor="bottom"
@@ -790,76 +780,35 @@ const TodoList = () => {
           }}
         >
           <Box sx={{ p: 3 }}>
-            <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 3 }} />
-            <Typography variant="h6" sx={{ mb: 3, fontWeight: 'bold' }}>
-              {editingTodo ? 'Edit Todo' : 'Add New Todo'}
+            <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 2 }} />
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
+              {editingTodo ? '✏️ Edit Todo' : '➕ Add New Todo'}
             </Typography>
 
+            {/* Title */}
             <TextField
               fullWidth
-              label="Title"
+              label="What do you need to do?"
+              placeholder="e.g., Buy groceries"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               sx={{ mb: 2 }}
               autoFocus
             />
 
+            {/* Description */}
             <TextField
               fullWidth
-              label="Description (optional)"
+              label="Notes (optional)"
+              placeholder="Add any details..."
               multiline
-              rows={3}
+              rows={2}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               sx={{ mb: 2 }}
             />
 
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Priority</InputLabel>
-              <Select
-                value={formData.priority}
-                label="Priority"
-                onChange={(e) => {
-                  const newPriority = e.target.value;
-                  // Clear reminder date for low priority
-                  const updatedFormData = {
-                    ...formData,
-                    priority: newPriority,
-                    reminderDate: newPriority === 'low' ? null : formData.reminderDate
-                  };
-                  setFormData(updatedFormData);
-                }}
-              >
-                <MenuItem value="low">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <LowPriorityIcon sx={{ color: 'success.main' }} />
-                    <Box>
-                      <Typography variant="body2">Low</Typography>
-                      <Typography variant="caption" color="text.secondary">No notifications</Typography>
-                    </Box>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="medium">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body2" sx={{ color: 'warning.main', fontWeight: 'medium' }}>⚠️</Typography>
-                    <Box>
-                      <Typography variant="body2">Medium</Typography>
-                      <Typography variant="caption" color="text.secondary">Gets notifications</Typography>
-                    </Box>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="high">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <PriorityHighIcon sx={{ color: 'error.main' }} />
-                    <Box>
-                      <Typography variant="body2">High</Typography>
-                      <Typography variant="caption" color="text.secondary">Gets notifications</Typography>
-                    </Box>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
-
+            {/* Category */}
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>Category</InputLabel>
               <Select
@@ -867,75 +816,83 @@ const TodoList = () => {
                 label="Category"
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
               >
-                <MenuItem value="personal">Personal</MenuItem>
-                <MenuItem value="work">Work</MenuItem>
-                <MenuItem value="shopping">Shopping</MenuItem>
-                <MenuItem value="health">Health</MenuItem>
+                <MenuItem value="personal">🏠 Personal</MenuItem>
+                <MenuItem value="work">💼 Work</MenuItem>
+                <MenuItem value="shopping">🛒 Shopping</MenuItem>
+                <MenuItem value="health">❤️ Health</MenuItem>
               </Select>
             </FormControl>
 
             <LocalizationProvider dateAdapter={AdapterDateFns}>
+              {/* Deadline with AM/PM */}
               <DateTimePicker
-                label="Due Date (optional)"
+                label="📅 Deadline (optional)"
                 value={formData.dueDate}
                 onChange={(newValue) => setFormData({ ...formData, dueDate: newValue })}
-                renderInput={(params) => (
-                  <TextField {...params} fullWidth sx={{ mb: 2 }} />
-                )}
-                ampm={false}
-                inputFormat="dd/MM/yyyy HH:mm"
+                slotProps={{
+                  textField: { fullWidth: true, sx: { mb: 2 } }
+                }}
+                ampm={true}
+                format="dd/MM/yyyy hh:mm a"
               />
 
-              {/* Only show reminder picker for medium and high priority */}
-              {(formData.priority === 'medium' || formData.priority === 'high') && (
-                <Box sx={{ mb: 3 }}>
-                  <DateTimePicker
-                    label={`Reminder Date & Time ${formData.priority === 'high' ? '(Recommended)' : '(Optional)'}`}
-                    value={formData.reminderDate}
-                    onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
-                    renderInput={(params) => (
-                      <TextField {...params} fullWidth />
-                    )}
-                    ampm={false}
-                    inputFormat="dd/MM/yyyy HH:mm:ss"
-                    views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
-                    helperText={
-                      formData.priority === 'high'
-                        ? "High priority tasks will send notifications even when app is closed"
-                        : "Medium priority tasks will send notifications when app is open"
-                    }
-                  />
-                  <Typography variant="caption" color="info.main" sx={{ mt: 1, display: 'block' }}>
-                    💡 Notifications will appear with title "COMMON MAN" and body "Reminder for: [task title]"
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Show info for low priority */}
-              {formData.priority === 'low' && (
-                <Box sx={{
-                  p: 2,
-                  bgcolor: 'success.light',
-                  borderRadius: 1,
-                  mb: 3,
-                  border: '1px solid',
-                  borderColor: 'success.main'
-                }}>
-                  <Typography variant="body2" sx={{ color: 'success.dark', fontWeight: 'medium' }}>
-                    ℹ️ Low priority tasks don't receive notifications to avoid unnecessary interruptions.
-                  </Typography>
-                </Box>
+              {/* Reminder with AM/PM - only shown if notifications enabled */}
+              {formData.notificationsEnabled && (
+                <DateTimePicker
+                  label="🔔 Reminder (optional)"
+                  value={formData.reminderDate}
+                  onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
+                  slotProps={{
+                    textField: { fullWidth: true, sx: { mb: 2 } }
+                  }}
+                  ampm={true}
+                  format="dd/MM/yyyy hh:mm a"
+                />
               )}
             </LocalizationProvider>
+
+            {/* Notification Toggle */}
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              p: 2,
+              bgcolor: formData.notificationsEnabled ? 'primary.light' : 'grey.100',
+              borderRadius: 2,
+              mb: 3,
+              border: '1px solid',
+              borderColor: formData.notificationsEnabled ? 'primary.main' : 'grey.300'
+            }}>
+              <Box>
+                <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                  🔔 Notifications
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formData.notificationsEnabled ? 'You will be reminded' : 'No reminders'}
+                </Typography>
+              </Box>
+              <Switch
+                checked={formData.notificationsEnabled}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setFormData({ 
+                    ...formData, 
+                    notificationsEnabled: enabled,
+                    reminderDate: enabled ? formData.reminderDate : null
+                  });
+                }}
+                color="primary"
+              />
+            </Box>
 
             <Button
               fullWidth
               variant="contained"
               onClick={handleSaveTodo}
               disabled={!formData.title.trim()}
-              sx={{ py: 1.5, borderRadius: 2 }}
+              sx={{ py: 1.5, borderRadius: 2, fontSize: '1rem' }}
             >
-              {editingTodo ? 'Update Todo' : 'Add Todo'}
+              {editingTodo ? 'Save Changes' : 'Add Todo'}
             </Button>
           </Box>
         </SwipeableDrawer>
@@ -950,93 +907,116 @@ const TodoList = () => {
           }}
         >
           <DialogTitle sx={{ fontWeight: 'bold' }}>
-            {editingTodo ? 'Edit Todo' : 'Add New Todo'}
+            {editingTodo ? '✏️ Edit Todo' : '➕ Add New Todo'}
           </DialogTitle>
           <DialogContent>
+            {/* Title */}
             <TextField
               fullWidth
-              label="Title"
+              label="What do you need to do?"
+              placeholder="e.g., Buy groceries"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               sx={{ mb: 2, mt: 1 }}
               autoFocus
             />
 
+            {/* Description */}
             <TextField
               fullWidth
-              label="Description (optional)"
+              label="Notes (optional)"
+              placeholder="Add any details..."
               multiline
-              rows={3}
+              rows={2}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               sx={{ mb: 2 }}
             />
 
-            <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Priority</InputLabel>
-                  <Select
-                    value={formData.priority}
-                    label="Priority"
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  >
-                    <MenuItem value="low">Low</MenuItem>
-                    <MenuItem value="medium">Medium</MenuItem>
-                    <MenuItem value="high">High</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Category</InputLabel>
-                  <Select
-                    value={formData.category}
-                    label="Category"
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  >
-                    <MenuItem value="personal">Personal</MenuItem>
-                    <MenuItem value="work">Work</MenuItem>
-                    <MenuItem value="shopping">Shopping</MenuItem>
-                    <MenuItem value="health">Health</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            {/* Category */}
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={formData.category}
+                label="Category"
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+              >
+                <MenuItem value="personal">🏠 Personal</MenuItem>
+                <MenuItem value="work">💼 Work</MenuItem>
+                <MenuItem value="shopping">🛒 Shopping</MenuItem>
+                <MenuItem value="health">❤️ Health</MenuItem>
+              </Select>
+            </FormControl>
 
             <LocalizationProvider dateAdapter={AdapterDateFns}>
+              {/* Deadline with AM/PM */}
               <DateTimePicker
-                label="Due Date (optional)"
+                label="📅 Deadline (optional)"
                 value={formData.dueDate}
                 onChange={(newValue) => setFormData({ ...formData, dueDate: newValue })}
-                renderInput={(params) => (
-                  <TextField {...params} fullWidth sx={{ mb: 2 }} />
-                )}
-                ampm={false}
-                inputFormat="dd/MM/yyyy HH:mm"
+                slotProps={{
+                  textField: { fullWidth: true, sx: { mb: 2 } }
+                }}
+                ampm={true}
+                format="dd/MM/yyyy hh:mm a"
               />
 
-              <DateTimePicker
-                label="Reminder Date & Time (optional)"
-                value={formData.reminderDate}
-                onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
-                renderInput={(params) => (
-                  <TextField {...params} fullWidth sx={{ mb: 2 }} />
-                )}
-                ampm={false}
-                inputFormat="dd/MM/yyyy HH:mm:ss"
-                views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
-              />
+              {/* Reminder with AM/PM - only shown if notifications enabled */}
+              {formData.notificationsEnabled && (
+                <DateTimePicker
+                  label="🔔 Reminder (optional)"
+                  value={formData.reminderDate}
+                  onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
+                  slotProps={{
+                    textField: { fullWidth: true, sx: { mb: 2 } }
+                  }}
+                  ampm={true}
+                  format="dd/MM/yyyy hh:mm a"
+                />
+              )}
             </LocalizationProvider>
+
+            {/* Notification Toggle */}
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              p: 2,
+              bgcolor: formData.notificationsEnabled ? 'primary.light' : 'grey.100',
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: formData.notificationsEnabled ? 'primary.main' : 'grey.300'
+            }}>
+              <Box>
+                <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                  🔔 Notifications
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formData.notificationsEnabled ? 'You will be reminded' : 'No reminders'}
+                </Typography>
+              </Box>
+              <Switch
+                checked={formData.notificationsEnabled}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setFormData({ 
+                    ...formData, 
+                    notificationsEnabled: enabled,
+                    reminderDate: enabled ? formData.reminderDate : null
+                  });
+                }}
+                color="primary"
+              />
+            </Box>
           </DialogContent>
-          <DialogActions sx={{ p: 3, pt: 0 }}>
+          <DialogActions sx={{ p: 3, pt: 2 }}>
             <Button onClick={handleCloseModal}>Cancel</Button>
             <Button
               onClick={handleSaveTodo}
               variant="contained"
               disabled={!formData.title.trim()}
             >
-              {editingTodo ? 'Update Todo' : 'Add Todo'}
+              {editingTodo ? 'Save Changes' : 'Add Todo'}
             </Button>
           </DialogActions>
         </Dialog>

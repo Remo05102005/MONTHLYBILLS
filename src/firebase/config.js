@@ -2,8 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getDatabase } from 'firebase/database';
-import { getAnalytics } from 'firebase/analytics';
-import { getMessaging } from 'firebase/messaging';
+import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
+import { getMessaging, isSupported as isMessagingSupported } from 'firebase/messaging';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -22,6 +22,27 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const realtimeDb = getDatabase(app);
-export const analytics = getAnalytics(app);
-export const messaging = getMessaging(app);
+
+// Initialize Analytics (only in supported environments)
+let analytics = null;
+isAnalyticsSupported().then(supported => {
+  if (supported) {
+    analytics = getAnalytics(app);
+  }
+}).catch(() => {});
+export { analytics };
+
+// Initialize Messaging (only in supported environments - requires service worker support)
+let messaging = null;
+try {
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'Notification' in window) {
+    messaging = getMessaging(app);
+    console.log('Firebase Messaging initialized successfully');
+  }
+} catch (err) {
+  console.warn('Firebase Messaging initialization failed:', err);
+  messaging = null;
+}
+export { messaging };
+
 export default app;
