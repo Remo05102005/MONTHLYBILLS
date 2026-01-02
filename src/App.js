@@ -19,6 +19,7 @@ import Profile from './pages/Profile';
 import SharedConversation from './pages/SharedConversation';
 import SubbaraoTimeline from './pages/SubbaraoTimeline';
 import TodoList from './pages/TodoList';
+import Weight from './pages/Weight';
 
 function AppContent() {
   const { mode } = useContext(ThemeContext);
@@ -110,6 +111,16 @@ function AppContent() {
                 <PrivateRoute>
                   <Layout>
                     <TodoList />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/weight"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <Weight />
                   </Layout>
                 </PrivateRoute>
               }

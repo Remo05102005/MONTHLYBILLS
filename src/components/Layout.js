@@ -18,6 +18,7 @@ import {
   Home as HomeIcon,
   Person as PersonIcon,
   CheckCircle as TodoIcon,
+  MonitorWeight as WeightIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { getData } from '../firebase/database';
@@ -46,6 +47,7 @@ const Layout = ({ children }) => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Todo', icon: <TodoIcon />, path: '/todo' },
+    { text: 'Weight', icon: <WeightIcon />, path: '/weight' },
     { text: 'Profile', icon: <PersonIcon />, path: '/profile' },
   ];
 

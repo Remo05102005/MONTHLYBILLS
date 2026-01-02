@@ -1,9 +1,10 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { 
-  format, 
-  parseISO, 
-  isValid, 
+import html2canvas from 'html2canvas';
+import {
+  format,
+  parseISO,
+  isValid,
   isDate,
   getDay
 } from 'date-fns';
@@ -1045,6 +1046,363 @@ export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
   doc.text(`Total Expenditure: ${Math.round(total).toLocaleString('en-IN')}`, pageWidth / 2, y, { align: 'center' });
 
   return doc;
+};
+
+export const generateWeightReport = (weights, selectedDays = 30, targetWeight = 70) => {
+  try {
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const contentWidth = pageWidth - (margin * 2);
+
+    // Helper function to add a section title
+    const addSectionTitle = (title, y) => {
+      doc.setFillColor(66, 139, 202);
+      doc.rect(margin, y, contentWidth, 8, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text(title, margin + 5, y + 5.5);
+      doc.setTextColor(0, 0, 0);
+      return y + 15;
+    };
+
+    // Helper function to add a divider line
+    const addDivider = (y) => {
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, y, pageWidth - margin, y);
+      return y + 5;
+    };
+
+    // Calculate weight statistics
+    const validWeights = weights.filter(w => w.weight && !isNaN(w.weight));
+    const sortedWeights = validWeights.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (sortedWeights.length === 0) {
+      throw new Error('No valid weight data available');
+    }
+
+    const currentWeight = sortedWeights[sortedWeights.length - 1]?.weight || 0;
+    const startWeight = sortedWeights[0]?.weight || 0;
+    const weightChange = currentWeight - startWeight;
+    const avgWeight = sortedWeights.reduce((sum, w) => sum + w.weight, 0) / sortedWeights.length;
+    const minWeight = Math.min(...sortedWeights.map(w => w.weight));
+    const maxWeight = Math.max(...sortedWeights.map(w => w.weight));
+
+    // Calculate trend (linear regression slope)
+    const n = sortedWeights.length;
+    const sumX = sortedWeights.reduce((sum, _, i) => sum + i, 0);
+    const sumY = sortedWeights.reduce((sum, w) => sum + w.weight, 0);
+    const sumXY = sortedWeights.reduce((sum, w, i) => sum + (i * w.weight), 0);
+    const sumXX = sortedWeights.reduce((sum, _, i) => sum + (i * i), 0);
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const trendDirection = slope > 0.1 ? 'Increasing' : slope < -0.1 ? 'Decreasing' : 'Stable';
+
+    // --- Cover Page ---
+    doc.setFillColor(52, 73, 94);
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(38);
+    doc.text('WEIGHT', pageWidth / 2, 120, { align: 'center' });
+    doc.setFontSize(32);
+    doc.text('TRACKER', pageWidth / 2, 155, { align: 'center' });
+
+    doc.setDrawColor(59, 130, 246);
+    doc.setLineWidth(3);
+    doc.line(pageWidth / 2 - 70, 175, pageWidth / 2 + 70, 175);
+
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Progress Report & Analysis', pageWidth / 2, 200, { align: 'center' });
+    doc.setFontSize(14);
+    doc.text(`Period: Last ${selectedDays} Days`, pageWidth / 2, 220, { align: 'center' });
+
+    doc.setFontSize(11);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Generated on: ${format(new Date(), 'dd MMM yyyy HH:mm')}`, pageWidth / 2, 250, { align: 'center' });
+
+    doc.addPage();
+
+    // --- Summary Section ---
+    let currentY = 30;
+    currentY = addSectionTitle('WEIGHT SUMMARY', currentY);
+
+    // Summary statistics
+    const summaryData = [
+      ['Current Weight', `${currentWeight.toFixed(1)} kg`],
+      ['Starting Weight', `${startWeight.toFixed(1)} kg`],
+      ['Total Change', `${weightChange > 0 ? '+' : ''}${weightChange.toFixed(1)} kg`],
+      ['Average Weight', `${avgWeight.toFixed(1)} kg`],
+      ['Target Weight', `${targetWeight} kg`],
+      ['Distance to Target', `${(targetWeight - currentWeight).toFixed(1)} kg`],
+      ['Trend Direction', trendDirection],
+      ['Total Entries', sortedWeights.length.toString()],
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['Metric', 'Value']],
+      body: summaryData,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        fontSize: 12,
+        fontStyle: 'bold',
+        halign: 'center'
+      },
+      styles: {
+        fontSize: 11,
+        cellPadding: 8,
+        textColor: [15, 23, 42]
+      },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold' },
+        1: { halign: 'right', fontStyle: 'bold', textColor: [59, 130, 246] }
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      margin: { left: margin, right: margin }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 15;
+
+    // --- Weight History Table ---
+    currentY = addSectionTitle('WEIGHT HISTORY', currentY);
+
+    const historyData = sortedWeights.slice(-20).map(weight => [
+      format(new Date(weight.date), 'MMM dd, yyyy'),
+      `${weight.weight.toFixed(1)} kg`,
+      weight.createdAt ? format(new Date(weight.createdAt), 'MMM dd, yyyy') : 'N/A'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['Date', 'Weight', 'Recorded']],
+      body: historyData,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        fontSize: 12,
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 10,
+        cellPadding: 6
+      },
+      columnStyles: {
+        0: { halign: 'center' },
+        1: { halign: 'right', fontStyle: 'bold' },
+        2: { halign: 'center' }
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      margin: { left: margin, right: margin }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 15;
+
+    // --- Weekly Analysis ---
+    currentY = addSectionTitle('WEEKLY ANALYSIS', currentY);
+
+    // Group by weeks
+    const weeklyData = {};
+    sortedWeights.forEach(weight => {
+      const date = new Date(weight.date);
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+      const weekKey = format(weekStart, 'MMM dd');
+
+      if (!weeklyData[weekKey]) {
+        weeklyData[weekKey] = { weights: [], sum: 0, count: 0 };
+      }
+      weeklyData[weekKey].weights.push(weight.weight);
+      weeklyData[weekKey].sum += weight.weight;
+      weeklyData[weekKey].count++;
+    });
+
+    const weeklyTableData = Object.entries(weeklyData)
+      .sort(([a], [b]) => new Date(a) - new Date(b))
+      .slice(-8) // Last 8 weeks
+      .map(([week, data]) => [
+        week,
+        data.count.toString(),
+        `${(data.sum / data.count).toFixed(1)} kg`,
+        `${Math.min(...data.weights).toFixed(1)} kg`,
+        `${Math.max(...data.weights).toFixed(1)} kg`
+      ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['Week', 'Entries', 'Average', 'Min', 'Max']],
+      body: weeklyTableData,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [59, 130, 246],
+        textColor: [255, 255, 255],
+        fontSize: 11,
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 6
+      },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold' },
+        1: { halign: 'center' },
+        2: { halign: 'right' },
+        3: { halign: 'right' },
+        4: { halign: 'right' }
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      margin: { left: margin, right: margin }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 15;
+
+    // --- Progress Insights ---
+    currentY = addSectionTitle('PROGRESS INSIGHTS', currentY);
+
+    const insights = [];
+
+    if (Math.abs(slope) > 0.05) {
+      if (slope > 0) {
+        insights.push(`Weight is trending upward at ${slope.toFixed(2)} kg/day`);
+      } else {
+        insights.push(`Weight is trending downward at ${Math.abs(slope).toFixed(2)} kg/day`);
+      }
+    } else {
+      insights.push('Weight is relatively stable with minimal daily changes');
+    }
+
+    const targetDiff = targetWeight - currentWeight;
+    if (Math.abs(targetDiff) < 2) {
+      insights.push('Very close to target weight - excellent progress!');
+    } else if (targetDiff > 0) {
+      insights.push(`${targetDiff.toFixed(1)} kg to reach target weight`);
+    } else {
+      insights.push(`${Math.abs(targetDiff).toFixed(1)} kg over target weight`);
+    }
+
+    const consistency = sortedWeights.length / selectedDays;
+    if (consistency > 0.8) {
+      insights.push('Excellent tracking consistency - keep it up!');
+    } else if (consistency > 0.5) {
+      insights.push('Good tracking consistency - consider more frequent entries');
+    } else {
+      insights.push('Tracking consistency could be improved for better insights');
+    }
+
+    // Add insights text
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+
+    insights.forEach((insight, index) => {
+      doc.text(`• ${insight}`, margin, currentY + (index * 8));
+    });
+
+    currentY += insights.length * 8 + 15;
+
+    // --- Footer ---
+    const footerY = pageHeight - 20;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.line(margin, footerY, pageWidth - margin, footerY);
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text('Generated by Weight Tracker', pageWidth / 2, footerY + 5, { align: 'center' });
+    doc.text(`Page 1 of 1`, pageWidth - margin - 5, footerY + 5, { align: 'right' });
+
+    return doc;
+  } catch (error) {
+    console.error('Error generating weight report:', error);
+    throw new Error(`Failed to generate weight report: ${error.message}`);
+  }
+};
+
+export const generateWeightImage = (weights, selectedDays = 30, targetWeight = 70, chartRef) => {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!chartRef || !chartRef.current) {
+        reject(new Error('Chart reference not available'));
+        return;
+      }
+
+      // Use html2canvas to capture the chart
+      html2canvas(chartRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: false,
+      }).then(canvas => {
+        // Convert canvas to blob
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Failed to generate image blob'));
+            return;
+          }
+
+          const filename = `weight_chart_${format(new Date(), 'yyyy-MM-dd')}.png`;
+          const file = new File([blob], filename, { type: 'image/png' });
+
+          // Use Web Share API if available
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({
+              title: 'Weight Tracker Chart',
+              text: 'Check out my weight progress chart!',
+              files: [file]
+            }).then(() => {
+              resolve(true);
+            }).catch((error) => {
+              if (error.name !== 'AbortError') {
+                console.error('Error sharing image:', error);
+                // Fallback to download
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.click();
+                URL.revokeObjectURL(url);
+              }
+              resolve(true);
+            });
+          } else {
+            // Fallback to download if Web Share API not supported
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+            resolve(true);
+          }
+        }, 'image/png');
+      }).catch(error => {
+        console.error('Error generating weight image:', error);
+        reject(new Error(`Failed to generate weight image: ${error.message}`));
+      });
+    } catch (error) {
+      console.error('Error in generateWeightImage:', error);
+      reject(new Error(`Failed to generate weight image: ${error.message}`));
+    }
+  });
 };
 
 // Test function to generate a sample report
