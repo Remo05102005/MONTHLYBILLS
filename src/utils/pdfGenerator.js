@@ -1048,7 +1048,7 @@ export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
   return doc;
 };
 
-export const generateWeightReport = (weights, selectedDays = 30, targetWeight = 70) => {
+export const generateWeightReport = async (weights, selectedDays = 30, targetWeight = 70, chartRef = null) => {
   try {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -1132,8 +1132,59 @@ export const generateWeightReport = (weights, selectedDays = 30, targetWeight = 
 
     doc.addPage();
 
-    // --- Summary Section ---
+    // Try to capture chart image if chartRef is provided
+    let chartImageData = null;
+    if (chartRef && chartRef.current) {
+      try {
+        const chartContainer = chartRef.current;
+        const originalOverflowX = chartContainer.style.overflowX;
+        const originalOverflowY = chartContainer.style.overflowY;
+
+        chartContainer.style.overflowX = 'visible';
+        chartContainer.style.overflowY = 'visible';
+
+        const canvas = await html2canvas(chartContainer, {
+          backgroundColor: '#ffffff',
+          scale: 1.5,
+          useCORS: true,
+          allowTaint: false,
+          scrollX: 0,
+          scrollY: 0,
+          width: chartContainer.scrollWidth,
+          height: chartContainer.scrollHeight,
+        });
+
+        chartImageData = canvas.toDataURL('image/png');
+
+        // Restore styles
+        chartContainer.style.overflowX = originalOverflowX;
+        chartContainer.style.overflowY = originalOverflowY;
+      } catch (error) {
+        console.warn('Could not capture chart image for PDF:', error);
+      }
+    }
+
+    // --- Weight Chart Section ---
     let currentY = 30;
+    if (chartImageData) {
+      currentY = addSectionTitle('WEIGHT CHART', currentY);
+
+      // Add chart image
+      const imgWidth = contentWidth;
+      const imgHeight = 60; // Fixed height for chart
+
+      doc.addImage(chartImageData, 'PNG', margin, currentY, imgWidth, imgHeight);
+      currentY += imgHeight + 10;
+
+      currentY = addDivider(currentY);
+    }
+
+    // --- Summary Section ---
+    // Check if we need a new page
+    if (currentY > pageHeight - 100) {
+      doc.addPage();
+      currentY = 30;
+    }
     currentY = addSectionTitle('WEIGHT SUMMARY', currentY);
 
     // Summary statistics
@@ -1215,6 +1266,11 @@ export const generateWeightReport = (weights, selectedDays = 30, targetWeight = 
     currentY = doc.lastAutoTable.finalY + 15;
 
     // --- Weekly Analysis ---
+    // Check if we need a new page
+    if (currentY > pageHeight - 120) {
+      doc.addPage();
+      currentY = 30;
+    }
     currentY = addSectionTitle('WEEKLY ANALYSIS', currentY);
 
     // Group by weeks
@@ -1345,59 +1401,84 @@ export const generateWeightImage = (weights, selectedDays = 30, targetWeight = 7
         return;
       }
 
-      // Use html2canvas to capture the chart
-      html2canvas(chartRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2, // Higher resolution
-        useCORS: true,
-        allowTaint: false,
-      }).then(canvas => {
-        // Convert canvas to blob
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            reject(new Error('Failed to generate image blob'));
-            return;
-          }
+      const chartContainer = chartRef.current;
 
-          const filename = `weight_chart_${format(new Date(), 'yyyy-MM-dd')}.png`;
-          const file = new File([blob], filename, { type: 'image/png' });
+      // Store original styles
+      const originalOverflowX = chartContainer.style.overflowX;
+      const originalOverflowY = chartContainer.style.overflowY;
 
-          // Use Web Share API if available
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-            navigator.share({
-              title: 'Weight Tracker Chart',
-              text: 'Check out my weight progress chart!',
-              files: [file]
-            }).then(() => {
+      // Temporarily disable overflow to capture full chart
+      chartContainer.style.overflowX = 'visible';
+      chartContainer.style.overflowY = 'visible';
+
+      // Wait a bit for the chart to fully render
+      setTimeout(() => {
+        // Use html2canvas to capture the entire chart container
+        html2canvas(chartContainer, {
+          backgroundColor: '#ffffff',
+          scale: 2, // Higher resolution
+          useCORS: true,
+          allowTaint: false,
+          scrollX: 0,
+          scrollY: 0,
+          width: chartContainer.scrollWidth,
+          height: chartContainer.scrollHeight,
+        }).then(canvas => {
+          // Restore original styles
+          chartContainer.style.overflowX = originalOverflowX;
+          chartContainer.style.overflowY = originalOverflowY;
+
+          // Convert canvas to blob
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('Failed to generate image blob'));
+              return;
+            }
+
+            const filename = `weight_chart_${format(new Date(), 'yyyy-MM-dd')}.png`;
+            const file = new File([blob], filename, { type: 'image/png' });
+
+            // Use Web Share API if available
+            if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+              navigator.share({
+                title: 'Weight Tracker Chart',
+                text: 'Check out my weight progress chart!',
+                files: [file]
+              }).then(() => {
+                resolve(true);
+              }).catch((error) => {
+                if (error.name !== 'AbortError') {
+                  console.error('Error sharing image:', error);
+                  // Fallback to download
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = filename;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                }
+                resolve(true);
+              });
+            } else {
+              // Fallback to download if Web Share API not supported
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = filename;
+              link.click();
+              URL.revokeObjectURL(url);
               resolve(true);
-            }).catch((error) => {
-              if (error.name !== 'AbortError') {
-                console.error('Error sharing image:', error);
-                // Fallback to download
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = filename;
-                link.click();
-                URL.revokeObjectURL(url);
-              }
-              resolve(true);
-            });
-          } else {
-            // Fallback to download if Web Share API not supported
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.click();
-            URL.revokeObjectURL(url);
-            resolve(true);
-          }
-        }, 'image/png');
-      }).catch(error => {
-        console.error('Error generating weight image:', error);
-        reject(new Error(`Failed to generate weight image: ${error.message}`));
-      });
+            }
+          }, 'image/png');
+        }).catch(error => {
+          // Restore original styles in case of error
+          chartContainer.style.overflowX = originalOverflowX;
+          chartContainer.style.overflowY = originalOverflowY;
+
+          console.error('Error generating weight image:', error);
+          reject(new Error(`Failed to generate weight image: ${error.message}`));
+        });
+      }, 500); // Wait 500ms for chart to render
     } catch (error) {
       console.error('Error in generateWeightImage:', error);
       reject(new Error(`Failed to generate weight image: ${error.message}`));

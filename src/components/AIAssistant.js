@@ -436,12 +436,15 @@ const SubbaraoChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Focus input when dialog opens
+  // Focus input when dialog opens or when switching to chat tab
   useEffect(() => {
-    if (isOpen && inputRef.current) {
+    if (isOpen && activeTab === 0 && inputRef.current) {
       setTimeout(() => inputRef.current.focus(), 100);
+      // Reset any stuck loading states when switching to chat tab
+      setIsLoading(false);
+      setIsProcessing(false);
     }
-  }, [isOpen]);
+  }, [isOpen, activeTab]);
 
   // Message bubble component
   const MessageBubble = ({ message }) => {
@@ -1214,9 +1217,10 @@ const SubbaraoChat = ({ transactions, selectedMonth, isOpen, onClose }) => {
                       const touch = e.touches[0];
                       const deltaX = swipeRef.current.startX - touch.clientX;
                       const deltaY = swipeRef.current.startY - touch.clientY;
-                      
-                      // Only handle horizontal swipes (ignore vertical scrolling)
-                      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 30) {
+
+                      // Only prevent default for clear horizontal swipes (ignore vertical scrolling)
+                      // Horizontal movement must be significantly larger than vertical and exceed threshold
+                      if (Math.abs(deltaX) > Math.abs(deltaY) * 2 && Math.abs(deltaX) > 50) {
                         e.preventDefault();
                       }
                     }
