@@ -1,7 +1,7 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { saveData, getData } from '../firebase/database';
+import { updateData, getData } from '../firebase/database';
 import {
   Container,
   Paper,
@@ -29,6 +29,7 @@ export default function Profile() {
     phoneNumber: '',
     address: '',
     avatar: '',
+    telegramUserId: '',
   });
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export default function Profile() {
     setSuccess('');
 
     try {
-      await saveData(`users/${currentUser.uid}`, {
+      await updateData(`users/${currentUser.uid}`, {
         ...userData,
         email: currentUser.email,
         updatedAt: new Date().toISOString()
@@ -143,6 +144,19 @@ export default function Profile() {
               />
             </Grid>
             <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Telegram User ID (for notifications)"
+                name="telegramUserId"
+                value={userData.telegramUserId}
+                onChange={handleChange}
+                variant="outlined"
+                placeholder="e.g., 123456789"
+                helperText="Required for todo notifications. Get from @userinfobot"
+                sx={{ backgroundColor: 'background.paper', borderRadius: 2 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
               <Button
                 type="submit"
                 variant="contained"
@@ -180,4 +194,4 @@ export default function Profile() {
       </Paper>
     </Container>
   );
-} 
+}

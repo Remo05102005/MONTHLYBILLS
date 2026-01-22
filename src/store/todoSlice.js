@@ -10,19 +10,30 @@ const initialState = {
     search: '',
     priority: 'all',
     category: 'all'
-  }
+  },
+  unsubscribe: null
 };
 
 export const fetchTodos = createAsyncThunk(
   'todos/fetchTodos',
-  async (_, { dispatch }) => {
+  async (_, { dispatch, getState }) => {
     const uid = auth.currentUser.uid;
+    const state = getState();
+
+    // Clean up existing subscription
+    if (state.todos.unsubscribe) {
+      state.todos.unsubscribe();
+    }
+
     return new Promise((resolve) => {
-      subscribeToTodos(uid, (data) => {
+      const unsubscribe = subscribeToTodos(uid, (data) => {
         const todos = data ? Object.entries(data).map(([id, t]) => ({ id, ...t })) : [];
         dispatch(setTodos(todos));
-        resolve();
       });
+
+      // Store unsubscribe function
+      dispatch(setUnsubscribe(unsubscribe));
+      resolve();
     });
   }
 );
@@ -63,6 +74,15 @@ const todoSlice = createSlice({
     },
     resetTodos: (state) => {
       state.todos = [];
+    },
+    setUnsubscribe: (state, action) => {
+      state.unsubscribe = action.payload;
+    },
+    cleanupSubscription: (state) => {
+      if (state.unsubscribe) {
+        state.unsubscribe();
+        state.unsubscribe = null;
+      }
     }
   },
   extraReducers: (builder) => {
@@ -80,5 +100,5 @@ const todoSlice = createSlice({
   }
 });
 
-export const { setTodos, resetTodos } = todoSlice.actions;
+export const { setTodos, resetTodos, setUnsubscribe, cleanupSubscription } = todoSlice.actions;
 export default todoSlice.reducer;

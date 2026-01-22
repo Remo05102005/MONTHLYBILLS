@@ -1,13 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import {
   Box,
   Typography,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
   IconButton,
   Checkbox,
   Fab,
@@ -33,17 +29,10 @@ import {
   MenuItem,
   InputAdornment,
   SwipeableDrawer,
-  Divider,
-  Avatar,
   Badge,
   LinearProgress,
   Tooltip,
-  CircularProgress,
-  Backdrop,
   Skeleton,
-  RefreshIndicator,
-  SwipeableList,
-  SwipeableListItem,
   Switch,
   FormControlLabel,
 } from '@mui/material';
@@ -51,7 +40,6 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Schedule as ScheduleIcon,
   Search as SearchIcon,
   FilterList as FilterIcon,
   PriorityHigh as PriorityHighIcon,
@@ -62,19 +50,19 @@ import {
   DateRange as DateRangeIcon,
   Category as CategoryIcon,
 } from '@mui/icons-material';
-import { fetchTodos, addTodoAsync, updateTodoAsync, deleteTodoAsync } from '../store/todoSlice';
+import { fetchTodos, addTodoAsync, updateTodoAsync, deleteTodoAsync, cleanupSubscription } from '../store/todoSlice';
 import { auth } from '../firebase/config';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format } from 'date-fns';
-import notificationService from '../services/notificationService';
+import { sendTelegramMessage, getBotUpdates, sendTodoCreatedNotification, scheduleTodoReminder, clearScheduledReminder, updateScheduledReminder, deleteScheduledReminder, loadScheduledTasks } from '../services/telegramService';
+import { getData, updateData } from '../firebase/database';
 
 const TodoList = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const location = useLocation();
   const { todos, loading, error: reduxError } = useSelector(state => state.todos);
 
@@ -92,6 +80,10 @@ const TodoList = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
+  // Notification state
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [userTelegramId, setUserTelegramId] = useState('');
+
   // Refs for mobile interactions
   const listRef = useRef(null);
   const pullRefreshRef = useRef(null);
@@ -101,10 +93,8 @@ const TodoList = () => {
     title: '',
     description: '',
     completed: false,
-    notificationsEnabled: true,
     category: 'personal',
     dueDate: null,
-    reminderDate: null,
   });
 
   // Online/offline detection
@@ -137,77 +127,52 @@ const TodoList = () => {
     }
   }, [dispatch, isOnline]);
 
-  // Check if user came from notification click
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('from') === 'notification') {
-      // Scroll to top or highlight recent todos
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [location]);
 
-  // Handle notification actions from service worker
-  useEffect(() => {
-    const handleNotificationAction = (event) => {
-      if (event.data && event.data.type === 'NOTIFICATION_ACTION') {
-        const { action, todoId, data } = event.data;
 
-        switch (action) {
-          case 'complete':
-            // Mark the todo as complete
-            const todoToComplete = todos.find(t => t.id === todoId);
-            if (todoToComplete && !todoToComplete.completed) {
-              handleToggleComplete(todoToComplete);
-              setSuccess('Todo marked as complete from notification!');
-            }
-            break;
-          case 'snooze':
-            // Reschedule the reminder (handled by notification service)
-            setSuccess('Reminder snoozed for 1 hour!');
-            break;
-          default:
-            break;
+  // Load user Telegram ID and notification preference
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (auth.currentUser) {
+        try {
+          const userData = await getData(`users/${auth.currentUser.uid}`);
+          if (userData) {
+            setUserTelegramId(userData.telegramUserId || '');
+            setNotificationsEnabled(userData.notificationsEnabled || false);
+          }
+        } catch (error) {
+          console.error('Error loading user settings:', error);
         }
       }
     };
 
-    // Listen for messages from service worker
-    navigator.serviceWorker?.addEventListener('message', handleNotificationAction);
-
-    // Also check for pending actions on component mount
-    const pendingActions = JSON.parse(localStorage.getItem('pendingNotificationActions') || '[]');
-    if (pendingActions.length > 0) {
-      pendingActions.forEach(action => {
-        if (action.action === 'complete') {
-          const todoToComplete = todos.find(t => t.id === action.todoId);
-          if (todoToComplete && !todoToComplete.completed) {
-            handleToggleComplete(todoToComplete);
-          }
-        }
-      });
-      // Clear processed actions
-      localStorage.setItem('pendingNotificationActions', '[]');
-    }
-
-    return () => {
-      navigator.serviceWorker?.removeEventListener('message', handleNotificationAction);
-    };
-  }, [todos]);
+    loadUserSettings();
+  }, [auth.currentUser]);
 
   useEffect(() => {
     if (auth.currentUser) {
       dispatch(fetchTodos());
-      // Initialize notifications for the user
-      notificationService.initializeNotifications(auth.currentUser.uid);
     }
+
+    // Cleanup subscription on unmount
+    return () => {
+      dispatch(cleanupSubscription());
+    };
   }, [dispatch]);
 
-  // Update reminders when todos change
-  useEffect(() => {
-    if (todos.length > 0) {
-      notificationService.updateReminders(todos);
+  // Handle notification toggle
+  const handleNotificationToggle = async (enabled) => {
+    setNotificationsEnabled(enabled);
+    try {
+      await updateData(`users/${auth.currentUser.uid}`, {
+        notificationsEnabled: enabled,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error saving notification settings:', error);
     }
-  }, [todos]);
+  };
+
+
 
   const handleOpenAddModal = (todo = null) => {
     if (todo) {
@@ -216,10 +181,8 @@ const TodoList = () => {
         title: todo.title || '',
         description: todo.description || '',
         completed: todo.completed || false,
-        notificationsEnabled: todo.notificationsEnabled !== false, // default true
         category: todo.category || 'personal',
         dueDate: todo.dueDate ? new Date(todo.dueDate) : null,
-        reminderDate: todo.reminderDate ? new Date(todo.reminderDate) : null,
       });
     } else {
       setEditingTodo(null);
@@ -227,10 +190,8 @@ const TodoList = () => {
         title: '',
         description: '',
         completed: false,
-        notificationsEnabled: true,
         category: 'personal',
         dueDate: null,
-        reminderDate: null,
       });
     }
     setIsAddModalOpen(true);
@@ -243,10 +204,8 @@ const TodoList = () => {
       title: '',
       description: '',
       completed: false,
-      notificationsEnabled: true,
       category: 'personal',
       dueDate: null,
-      reminderDate: null,
     });
   };
 
@@ -269,6 +228,17 @@ const TodoList = () => {
         setSuccess('Todo updated successfully!');
       } else {
         await dispatch(addTodoAsync(todoData));
+
+        // Schedule reminder if notifications enabled, user has Telegram ID, and deadline exists
+        if (notificationsEnabled && userTelegramId && todoData.dueDate) {
+          try {
+            await scheduleTodoReminder(auth.currentUser.uid, todoData.id, userTelegramId, todoData, todoData.dueDate);
+            console.log('Reminder scheduled for todo:', todoData.title);
+          } catch (reminderError) {
+            console.error('Error scheduling reminder:', reminderError);
+          }
+        }
+
         setSuccess('Todo added successfully!');
       }
       handleCloseModal();
@@ -278,15 +248,27 @@ const TodoList = () => {
   };
 
   const handleToggleComplete = async (todo) => {
+    const newCompleted = !todo.completed;
+
     try {
       await dispatch(updateTodoAsync({
         id: todo.id,
         todo: {
           ...todo,
-          completed: !todo.completed,
+          completed: newCompleted,
           updatedAt: new Date().toISOString(),
         }
       }));
+
+      // If marking as completed, clear any scheduled reminders
+      if (newCompleted && notificationsEnabled && userTelegramId) {
+        try {
+          await deleteScheduledReminder(auth.currentUser.uid, todo.id);
+          console.log('Cleared scheduled reminder for completed todo:', todo.title);
+        } catch (reminderError) {
+          console.error('Error clearing reminder for completed todo:', reminderError);
+        }
+      }
     } catch (err) {
       console.error('Error updating todo:', err);
     }
@@ -295,6 +277,14 @@ const TodoList = () => {
   const handleDeleteTodo = async () => {
     if (todoToDelete) {
       try {
+        // Clear any scheduled reminders before deleting
+        try {
+          await deleteScheduledReminder(auth.currentUser.uid, todoToDelete.id);
+          console.log('Cleared scheduled reminder for deleted todo:', todoToDelete.title);
+        } catch (reminderError) {
+          console.error('Error clearing reminder for deleted todo:', reminderError);
+        }
+
         await dispatch(deleteTodoAsync(todoToDelete.id));
         setSuccess('Todo deleted successfully!');
         setDeleteDialogOpen(false);
@@ -366,31 +356,18 @@ const TodoList = () => {
           />
 
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <Typography
-                variant="h6"
-                sx={{
-                  fontWeight: 'medium',
-                  textDecoration: isCompleted ? 'line-through' : 'none',
-                  color: isCompleted ? 'text.secondary' : 'text.primary',
-                  flex: 1,
-                  fontSize: isMobile ? '1rem' : '1.25rem',
-                }}
-              >
-                {todo.title}
-              </Typography>
-
-              {/* Notification status indicator */}
-              {todo.notificationsEnabled !== false && todo.reminderDate && (
-                <Chip
-                  icon={<ScheduleIcon />}
-                  label="🔔"
-                  size="small"
-                  color="primary"
-                  variant="outlined"
-                />
-              )}
-            </Box>
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 'medium',
+                textDecoration: isCompleted ? 'line-through' : 'none',
+                color: isCompleted ? 'text.secondary' : 'text.primary',
+                mb: 1,
+                fontSize: isMobile ? '1rem' : '1.25rem',
+              }}
+            >
+              {todo.title}
+            </Typography>
 
             {todo.description && (
               <Typography
@@ -428,15 +405,6 @@ const TodoList = () => {
                   label={`📅 ${format(new Date(todo.dueDate), 'dd MMM, hh:mm a')}`}
                   size="small"
                   color={new Date(todo.dueDate) < new Date() && !isCompleted ? 'error' : 'default'}
-                  variant="outlined"
-                />
-              )}
-
-              {todo.reminderDate && todo.notificationsEnabled !== false && (
-                <Chip
-                  label={`🔔 ${format(new Date(todo.reminderDate), 'dd MMM, hh:mm a')}`}
-                  size="small"
-                  color="info"
                   variant="outlined"
                 />
               )}
@@ -824,66 +792,93 @@ const TodoList = () => {
             </FormControl>
 
             <LocalizationProvider dateAdapter={AdapterDateFns}>
-              {/* Deadline with AM/PM */}
+              {/* Deadline with AM/PM - Required for notifications */}
               <DateTimePicker
-                label="📅 Deadline (optional)"
+                label="📅 Deadline (required for notifications)"
                 value={formData.dueDate}
-                onChange={(newValue) => setFormData({ ...formData, dueDate: newValue })}
+                onChange={(newValue) => {
+                  // Validate deadline is not in the past
+                  if (newValue && newValue < new Date()) {
+                    setLocalError('Deadline cannot be in the past');
+                    return;
+                  }
+                  setLocalError(''); // Clear error if valid
+                  setFormData({ ...formData, dueDate: newValue });
+
+                  // Disable notifications if deadline is removed
+                  if (!newValue && notificationsEnabled) {
+                    setNotificationsEnabled(false);
+                  }
+                }}
                 slotProps={{
                   textField: { fullWidth: true, sx: { mb: 2 } }
                 }}
                 ampm={true}
                 format="dd/MM/yyyy hh:mm a"
+                minDateTime={new Date()} // Prevent past dates
               />
-
-              {/* Reminder with AM/PM - only shown if notifications enabled */}
-              {formData.notificationsEnabled && (
-                <DateTimePicker
-                  label="🔔 Reminder (optional)"
-                  value={formData.reminderDate}
-                  onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
-                  slotProps={{
-                    textField: { fullWidth: true, sx: { mb: 2 } }
-                  }}
-                  ampm={true}
-                  format="dd/MM/yyyy hh:mm a"
-                />
-              )}
             </LocalizationProvider>
 
-            {/* Notification Toggle */}
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              p: 2,
-              bgcolor: formData.notificationsEnabled ? 'primary.light' : 'grey.100',
-              borderRadius: 2,
-              mb: 3,
-              border: '1px solid',
-              borderColor: formData.notificationsEnabled ? 'primary.main' : 'grey.300'
-            }}>
-              <Box>
-                <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                  🔔 Notifications
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {formData.notificationsEnabled ? 'You will be reminded' : 'No reminders'}
+            {/* Telegram Notifications - Only show if user has Telegram ID AND deadline is set */}
+            {userTelegramId && formData.dueDate && formData.dueDate > new Date() && (
+              <Box sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                p: 2,
+                bgcolor: notificationsEnabled ? 'primary.light' : 'grey.100',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: notificationsEnabled ? 'primary.main' : 'grey.300'
+              }}>
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                    📱 Telegram Notifications
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {notificationsEnabled ? 'Deadline reminders enabled' : 'No notifications'}
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={notificationsEnabled}
+                  onChange={(e) => handleNotificationToggle(e.target.checked)}
+                  color="primary"
+                />
+              </Box>
+            )}
+
+            {/* Show message when deadline is required for notifications */}
+            {userTelegramId && !formData.dueDate && (
+              <Box sx={{
+                p: 2,
+                bgcolor: 'info.light',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: 'info.main'
+              }}>
+                <Typography variant="body2" color="info.contrastText">
+                  💡 Set a deadline above to enable Telegram notifications
                 </Typography>
               </Box>
-              <Switch
-                checked={formData.notificationsEnabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  setFormData({ 
-                    ...formData, 
-                    notificationsEnabled: enabled,
-                    reminderDate: enabled ? formData.reminderDate : null
-                  });
-                }}
-                color="primary"
-              />
-            </Box>
+            )}
+
+            {/* Show message when deadline is in the past */}
+            {formData.dueDate && formData.dueDate <= new Date() && (
+              <Box sx={{
+                p: 2,
+                bgcolor: 'warning.light',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: 'warning.main'
+              }}>
+                <Typography variant="body2" color="warning.contrastText">
+                  ⚠️ Deadline must be in the future to enable notifications
+                </Typography>
+              </Box>
+            )}
 
             <Button
               fullWidth
@@ -949,65 +944,93 @@ const TodoList = () => {
             </FormControl>
 
             <LocalizationProvider dateAdapter={AdapterDateFns}>
-              {/* Deadline with AM/PM */}
+              {/* Deadline with AM/PM - Required for notifications */}
               <DateTimePicker
-                label="📅 Deadline (optional)"
+                label="📅 Deadline (required for notifications)"
                 value={formData.dueDate}
-                onChange={(newValue) => setFormData({ ...formData, dueDate: newValue })}
+                onChange={(newValue) => {
+                  // Validate deadline is not in the past
+                  if (newValue && newValue < new Date()) {
+                    setLocalError('Deadline cannot be in the past');
+                    return;
+                  }
+                  setLocalError(''); // Clear error if valid
+                  setFormData({ ...formData, dueDate: newValue });
+
+                  // Disable notifications if deadline is removed
+                  if (!newValue && notificationsEnabled) {
+                    setNotificationsEnabled(false);
+                  }
+                }}
                 slotProps={{
                   textField: { fullWidth: true, sx: { mb: 2 } }
                 }}
                 ampm={true}
                 format="dd/MM/yyyy hh:mm a"
+                minDateTime={new Date()} // Prevent past dates
               />
-
-              {/* Reminder with AM/PM - only shown if notifications enabled */}
-              {formData.notificationsEnabled && (
-                <DateTimePicker
-                  label="🔔 Reminder (optional)"
-                  value={formData.reminderDate}
-                  onChange={(newValue) => setFormData({ ...formData, reminderDate: newValue })}
-                  slotProps={{
-                    textField: { fullWidth: true, sx: { mb: 2 } }
-                  }}
-                  ampm={true}
-                  format="dd/MM/yyyy hh:mm a"
-                />
-              )}
             </LocalizationProvider>
 
-            {/* Notification Toggle */}
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              p: 2,
-              bgcolor: formData.notificationsEnabled ? 'primary.light' : 'grey.100',
-              borderRadius: 2,
-              border: '1px solid',
-              borderColor: formData.notificationsEnabled ? 'primary.main' : 'grey.300'
-            }}>
-              <Box>
-                <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                  🔔 Notifications
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {formData.notificationsEnabled ? 'You will be reminded' : 'No reminders'}
+            {/* Telegram Notifications - Only show if user has Telegram ID AND deadline is set */}
+            {userTelegramId && formData.dueDate && formData.dueDate > new Date() && (
+              <Box sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                p: 2,
+                bgcolor: notificationsEnabled ? 'primary.light' : 'grey.100',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: notificationsEnabled ? 'primary.main' : 'grey.300'
+              }}>
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                    📱 Telegram Notifications
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {notificationsEnabled ? 'Deadline reminders enabled' : 'No notifications'}
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={notificationsEnabled}
+                  onChange={(e) => handleNotificationToggle(e.target.checked)}
+                  color="primary"
+                />
+              </Box>
+            )}
+
+            {/* Show message when deadline is required for notifications */}
+            {userTelegramId && !formData.dueDate && (
+              <Box sx={{
+                p: 2,
+                bgcolor: 'info.light',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: 'info.main'
+              }}>
+                <Typography variant="body2" color="info.contrastText">
+                  💡 Set a deadline above to enable Telegram notifications
                 </Typography>
               </Box>
-              <Switch
-                checked={formData.notificationsEnabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  setFormData({ 
-                    ...formData, 
-                    notificationsEnabled: enabled,
-                    reminderDate: enabled ? formData.reminderDate : null
-                  });
-                }}
-                color="primary"
-              />
-            </Box>
+            )}
+
+            {/* Show message when deadline is in the past */}
+            {formData.dueDate && formData.dueDate <= new Date() && (
+              <Box sx={{
+                p: 2,
+                bgcolor: 'warning.light',
+                borderRadius: 2,
+                mb: 2,
+                border: '1px solid',
+                borderColor: 'warning.main'
+              }}>
+                <Typography variant="body2" color="warning.contrastText">
+                  ⚠️ Deadline must be in the future to enable notifications
+                </Typography>
+              </Box>
+            )}
           </DialogContent>
           <DialogActions sx={{ p: 3, pt: 2 }}>
             <Button onClick={handleCloseModal}>Cancel</Button>

@@ -41,8 +41,6 @@ const initializeEnvironment = async () => {
   // Register service worker only for web environment
   if (!isCapacitor && 'serviceWorker' in navigator) {
     try {
-      const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-      console.log('Service Worker registered successfully:', registration);
     } catch (error) {
       console.log('Service Worker registration failed:', error);
     }
