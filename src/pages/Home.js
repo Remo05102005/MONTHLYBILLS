@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { fetchTodos } from '../store/todoSlice';
@@ -42,7 +42,19 @@ import {
   ListItem,
   ListItemText,
   IconButton,
+  Paper,
+  Slider,
 } from '@mui/material';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from 'recharts';
 import {
   Add as AddIcon,
   CalendarToday as CalendarIcon,
@@ -93,6 +105,7 @@ const Home = () => {
   const [selectedReportMonth, setSelectedReportMonth] = useState(new Date());
   const [openExpenditureMonthDialog, setOpenExpenditureMonthDialog] = useState(false);
   const [selectedExpenditureMonth, setSelectedExpenditureMonth] = useState(new Date());
+  const [openMonthDialog, setOpenMonthDialog] = useState(false);
   const [editTransaction, setEditTransaction] = useState(null);
   const [selectedInsight, setSelectedInsight] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -103,6 +116,8 @@ const Home = () => {
   const [dayModalOpen, setDayModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [subbaraoOpen, setSubbaraoOpen] = useState(false);
+  const [graphType, setGraphType] = useState('bar');
+  const [graphModalOpen, setGraphModalOpen] = useState(false);
   const shareRef = useRef();
   const dayShareRef = useRef();
 
@@ -211,41 +226,105 @@ const Home = () => {
     }
   }, [dailyTransactions]);
 
+  // Prepare chart data for expenditure graph with proper filtering
+  const chartData = useMemo(() => {
+    // Filter out days with no transactions for cleaner line chart
+    const filteredDays = dailyTransactions.filter(day => day.transactions.length > 0);
+    
+    return filteredDays.map(day => ({
+      date: format(day.date, 'dd'),
+      fullDate: format(day.date, 'yyyy-MM-dd'),
+      expense: day.expense,
+      income: day.income,
+      transactions: day.transactions.length
+    }));
+  }, [dailyTransactions]);
+
+  // Custom tooltip for expenditure graph with improved styling
+  const ExpenditureTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <Box sx={{
+          bgcolor: 'background.paper',
+          p: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2,
+          boxShadow: 4,
+          minWidth: 200
+        }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+            {data.fullDate}
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'error.main' }} />
+            <Typography variant="body2" color="error.main" sx={{ fontWeight: 600 }}>
+              Expense: ₹{Math.round(data.expense).toLocaleString('en-IN')}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'success.main' }} />
+            <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
+              Income: ₹{Math.round(data.income).toLocaleString('en-IN')}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'text.secondary' }} />
+            <Typography variant="body2" color="text.secondary">
+              Transactions: {data.transactions}
+            </Typography>
+          </Box>
+        </Box>
+      );
+    }
+    return null;
+  };
+
   // Task statistics
   const taskStatistics = useMemo(() => {
     if (!todos || todos.length === 0) {
-      return { upcomingCount: 0, pendingCount: 0, missingCount: 0 };
+      return { pendingCount: 0 };
     }
 
-    const now = new Date();
-    const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-    let upcomingCount = 0;
     let pendingCount = 0;
-    let missingCount = 0;
 
     todos.forEach(todo => {
-      if (todo.completed) return; // Skip completed tasks
-
-      if (todo.dueDate) {
-        const dueDate = new Date(todo.dueDate);
-        if (dueDate < now) {
-          missingCount++; // Overdue/missing
-        } else if (dueDate <= next7Days) {
-          upcomingCount++; // Due within next 7 days
-        }
-        // Tasks due after 7 days are not counted in upcoming
-      } else {
-        pendingCount++; // No due date - pending
+      if (!todo.completed) {
+        pendingCount++; // Count all incomplete tasks
       }
     });
 
-    return { upcomingCount, pendingCount, missingCount };
+    console.log('Task Statistics:', { pendingCount });
+    console.log('Todos:', todos);
+
+    return { pendingCount };
   }, [todos]);
 
   const handleGenerateReport = () => {
     setOpenReportMonthDialog(true);
   };
+
+  // Custom back button handler to prevent leaving home page
+  const handleBackButton = useCallback((event) => {
+    // Check if we're on the home page and prevent navigation
+    if (window.location.pathname === '/') {
+      event.preventDefault();
+      // Stay on the same page by not navigating
+      return;
+    }
+  }, []);
+
+  // Set up back button listener when component mounts
+  useEffect(() => {
+    // Listen for popstate events (back button)
+    window.addEventListener('popstate', handleBackButton);
+    
+    // Clean up the event listener when component unmounts
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, [handleBackButton]);
 
   const handleShareReport = async (reportData, fileName) => {
     try {
@@ -346,24 +425,268 @@ const Home = () => {
     setSuccess(null);
   };
 
-  const StatCard = ({ title, value, icon, color, subtitle }) => (
-    <Card sx={{ height: '100%' }}>
-      <CardContent>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          {icon}
-          <Typography variant="h6" sx={{ ml: 1 }}>
-            {title}
-          </Typography>
+  const FinancialSummaryCard = () => (
+    <Card sx={{ height: '100%', overflow: 'hidden', boxShadow: 3 }}>
+      <Box sx={{ 
+        background: 'linear-gradient(135deg, #1f2937 0%, #111827 100%)',
+        color: 'white',
+        p: 2,
+        borderBottom: '1px solid rgba(255,255,255,0.1)'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <InsightsIcon sx={{ fontSize: 24, mr: 1 }} />
+            <Typography variant="h6" sx={{ fontWeight: 'bold', letterSpacing: '0.5px' }}>
+              FINANCIAL SUMMARY
+            </Typography>
+          </Box>
+          <Box
+            onClick={() => setOpenMonthDialog(true)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              opacity: 0.8,
+              fontSize: '0.8rem',
+              fontFamily: 'monospace',
+              cursor: 'pointer',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              borderRadius: 2,
+              px: 1.5,
+              py: 0.5,
+              transition: 'all 0.3s ease',
+              border: '1px solid rgba(255,255,255,0.2)',
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                transform: 'translateY(-1px)',
+                boxShadow: '0 4px 12px rgba(255,255,255,0.1)',
+                borderColor: 'rgba(255,255,255,0.4)'
+              },
+              '&:active': {
+                transform: 'translateY(0)',
+                boxShadow: 'none'
+              }
+            }}
+          >
+            <CalendarIcon sx={{ fontSize: 16, opacity: 0.8 }} />
+            <Typography sx={{ fontWeight: 'bold' }}>
+              {format(selectedMonth, 'MMM yyyy').toUpperCase()}
+            </Typography>
+            <Box
+              component="span"
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255,255,255,0.6)',
+                ml: 0.5,
+                animation: 'pulse 2s infinite'
+              }}
+            />
+          </Box>
         </Box>
-        <Typography variant="h4" color={color}>
-          ₹{value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-        </Typography>
-        {subtitle && (
-          <Typography variant="body2" color="text.secondary">
-            {subtitle}
-          </Typography>
-        )}
-      </CardContent>
+      </Box>
+      
+      <Box sx={{ p: 2 }}>
+        <Grid container spacing={2}>
+          {/* Total Income */}
+          <Grid item xs={6}>
+            <Box sx={{ 
+              p: 2, 
+              borderRadius: 4, 
+              backgroundColor: 'rgba(34, 197, 94, 0.08)',
+              border: '1px solid rgba(34, 197, 94, 0.2)',
+              minHeight: 90,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(34, 197, 94, 0.15)'
+              }
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Total Income
+                </Typography>
+                <TrendingUpIcon color="success" sx={{ fontSize: 16 }} />
+              </Box>
+              <Typography 
+                variant="h5" 
+                color="success.main" 
+                sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: { xs: '0.9rem', sm: '1.2rem' },
+                  overflow: 'visible',
+                  textOverflow: 'clip',
+                  whiteSpace: 'normal',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.1,
+                  minHeight: { xs: '20px', sm: '26px' },
+                  wordBreak: 'break-word',
+                  textAlign: 'right',
+                  width: '100%'
+                }}
+              >
+                ₹{statistics.income.toLocaleString('en-IN')}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                {filteredTransactions.length} transactions
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Total Expenditure */}
+          <Grid item xs={6}>
+            <Box sx={{ 
+              p: 2, 
+              borderRadius: 4, 
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              minHeight: 90,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.15)'
+              }
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Total Expense
+                </Typography>
+                <TrendingDownIcon color="error" sx={{ fontSize: 16 }} />
+              </Box>
+              <Typography 
+                variant="h5" 
+                color="error.main" 
+                sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: { xs: '0.9rem', sm: '1.2rem' },
+                  overflow: 'visible',
+                  textOverflow: 'clip',
+                  whiteSpace: 'normal',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.1,
+                  minHeight: { xs: '20px', sm: '26px' },
+                  wordBreak: 'break-word',
+                  textAlign: 'right',
+                  width: '100%'
+                }}
+              >
+                ₹{statistics.expenses.toLocaleString('en-IN')}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                {dailyTransactions.filter(day => day.expense > 0).length} active days
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Average Expenditure */}
+          <Grid item xs={6}>
+            <Box sx={{ 
+              p: 2, 
+              borderRadius: 4, 
+              backgroundColor: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.2)',
+              minHeight: 90,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)'
+              }
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Avg Daily Expense
+                </Typography>
+                <TrendingDownIcon color="warning" sx={{ fontSize: 16 }} />
+              </Box>
+              <Typography 
+                variant="h5" 
+                color="warning.main" 
+                sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: { xs: '0.9rem', sm: '1.2rem' },
+                  overflow: 'visible',
+                  textOverflow: 'clip',
+                  whiteSpace: 'normal',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.1,
+                  minHeight: { xs: '20px', sm: '26px' },
+                  wordBreak: 'break-word',
+                  textAlign: 'right',
+                  width: '100%'
+                }}
+              >
+                ₹{Math.round(statistics.avgDailyExpense).toLocaleString('en-IN')}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                Per day
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Remaining Balance */}
+          <Grid item xs={6}>
+            <Box sx={{ 
+              p: 2, 
+              borderRadius: 4, 
+              backgroundColor: statistics.savings >= 0 ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+              border: `1px solid ${statistics.savings >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+              minHeight: 90,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: statistics.savings >= 0 ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                transform: 'translateY(-2px)',
+                boxShadow: statistics.savings >= 0 ? '0 4px 12px rgba(34, 197, 94, 0.15)' : '0 4px 12px rgba(239, 68, 68, 0.15)'
+              }
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color={statistics.savings >= 0 ? 'success.main' : 'error.main'} sx={{ fontWeight: 'bold', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Remaining Balance
+                </Typography>
+                <EqualizerIcon color={statistics.savings >= 0 ? 'success' : 'error'} sx={{ fontSize: 16 }} />
+              </Box>
+              <Typography 
+                variant="h5" 
+                color={statistics.savings >= 0 ? 'success.main' : 'error.main'} 
+                sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: { xs: '0.9rem', sm: '1.2rem' },
+                  overflow: 'visible',
+                  textOverflow: 'clip',
+                  whiteSpace: 'normal',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.1,
+                  minHeight: { xs: '20px', sm: '26px' },
+                  wordBreak: 'break-word',
+                  textAlign: 'right',
+                  width: '100%'
+                }}
+              >
+                ₹{statistics.savings.toLocaleString('en-IN')}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                {statistics.savings >= 0 ? 'Surplus' : 'Deficit'} • {statistics.savingsRate.toFixed(1)}% rate
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
+      </Box>
     </Card>
   );
 
@@ -846,285 +1169,676 @@ const Home = () => {
     }
   };
 
+  // Handle graph sharing as image
+  const handleGraphShare = async () => {
+    try {
+      // Find the graph container element
+      const graphContainer = document.querySelector('.MuiDialog-root .MuiDialogContent-root');
+      if (!graphContainer) {
+        setError('Graph not found. Please try again.');
+        return;
+      }
+
+      // Create a temporary container to capture the graph with its background
+      const tempContainer = document.createElement('div');
+      tempContainer.style.position = 'fixed';
+      tempContainer.style.top = '0';
+      tempContainer.style.left = '0';
+      tempContainer.style.zIndex = '-9999';
+      tempContainer.style.width = '800px';
+      tempContainer.style.height = '500px';
+      tempContainer.style.backgroundColor = 'white';
+      tempContainer.style.padding = '20px';
+      tempContainer.style.boxSizing = 'border-box';
+      tempContainer.style.fontFamily = 'Arial, sans-serif';
+      
+      // Clone the graph container
+      const graphClone = graphContainer.cloneNode(true);
+      tempContainer.appendChild(graphClone);
+      document.body.appendChild(tempContainer);
+
+      // Wait for the clone to be fully rendered
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Capture the graph as an image
+      const canvas = await html2canvas(tempContainer, {
+        backgroundColor: 'white',
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: true
+      });
+
+      // Remove the temporary container
+      document.body.removeChild(tempContainer);
+
+      // Convert canvas to blob
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setError('Failed to create image. Please try again.');
+          return;
+        }
+
+        // Create a filename
+        const dateStr = format(selectedMonth, 'yyyy-MM');
+        const fileName = `expenditure-analysis-${dateStr}.png`;
+
+        // Check if Web Share API is available (mobile devices)
+        if (navigator.share && navigator.canShare) {
+          try {
+            // Create a File object for sharing
+            const file = new File([blob], fileName, { type: 'image/png' });
+            
+            // Check if we can share this file
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                title: 'Expenditure Analysis',
+                text: `Expenditure analysis for ${format(selectedMonth, 'MMMM yyyy')}`,
+                files: [file]
+              });
+              
+              setSuccess('Graph shared successfully! 📱');
+              return;
+            }
+          } catch (shareError) {
+            console.log('Web Share API failed, falling back to download:', shareError);
+          }
+        }
+
+        // Fallback to download if Web Share API is not available or fails
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        setSuccess('Graph downloaded successfully! 📱');
+        
+      }, 'image/png', 0.9);
+      
+    } catch (err) {
+      console.error('Graph sharing error:', err);
+      setError(`Failed to share graph: ${err.message}`);
+    }
+  };
+
   return (
     <Box sx={{ p: isMobile ? 2 : 3, pb: isMobile ? 10 : 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-        Welcome to COMMON MAN
-      </Typography>
-
-      <LocalizationProvider dateAdapter={AdapterDateFns}>
-        <DatePicker
-          views={["year", "month"]}
-          label="Select Month"
-          minDate={new Date('2000-01-01')}
-          maxDate={new Date('2100-12-31')}
-          value={selectedMonth}
-          onChange={setSelectedMonth}
-          renderInput={(params) => (
-            <TextField 
-              {...params} 
-              sx={{ 
-                mb: 3,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 2,
-                  backgroundColor: 'background.paper',
-                }
-              }} 
-              fullWidth={isMobile} 
-            />
-          )}
-        />
-      </LocalizationProvider>
-
       <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Total Income"
-            value={statistics.income}
-            icon={<TrendingUpIcon color="primary" />}
-            color="primary"
-            subtitle={format(selectedMonth, 'MMMM yyyy')}
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Total Expenditure"
-            value={statistics.expenses}
-            icon={<TrendingDownIcon color="error" />}
-            color="error"
-            subtitle={`${filteredTransactions.length} transactions`}
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Average Expenditure"
-            value={Math.round(statistics.avgDailyExpense)}
-            icon={<TrendingDownIcon color="warning" />}
-            color="warning.main"
-            subtitle="Per day"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Remaining Balance"
-            value={statistics.savings}
-            icon={<EqualizerIcon color={statistics.savings >= 0 ? 'success' : 'error'} />}
-            color={statistics.savings >= 0 ? 'success.main' : 'error.main'}
-            subtitle={statistics.savings >= 0 ? 'Surplus' : 'Deficit'}
-          />
+        <Grid item xs={12}>
+          <FinancialSummaryCard />
         </Grid>
       </Grid>
 
-      {/* Task Notification Banner */}
-      {(taskStatistics.missingCount > 0 || taskStatistics.upcomingCount > 0 || taskStatistics.pendingCount > 0) && (
-        <Box sx={{ mt: 3, mb: 3 }}>
-          <Card
-            sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white',
-              cursor: 'pointer',
-              '&:hover': { transform: 'translateY(-2px)', transition: 'transform 0.2s' }
-            }}
-            onClick={() => navigate('/todo')}
-          >
-            <CardContent sx={{ pb: '16px !important' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    📋 Task Reminder
-                  </Typography>
-                  <Typography variant="body1">
-                    {taskStatistics.missingCount > 0 && `${taskStatistics.missingCount} overdue task${taskStatistics.missingCount !== 1 ? 's' : ''}`}
-                    {taskStatistics.missingCount > 0 && taskStatistics.upcomingCount > 0 && ', '}
-                    {taskStatistics.upcomingCount > 0 && `${taskStatistics.upcomingCount} upcoming task${taskStatistics.upcomingCount !== 1 ? 's' : ''}`}
-                    {((taskStatistics.missingCount > 0 || taskStatistics.upcomingCount > 0) && taskStatistics.pendingCount > 0) && ', '}
-                    {taskStatistics.pendingCount > 0 && `${taskStatistics.pendingCount} pending task${taskStatistics.pendingCount !== 1 ? 's' : ''}`}
-                  </Typography>
-                  <Typography variant="caption" sx={{ opacity: 0.8, mt: 1, display: 'block' }}>
-                    Click to manage your tasks
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  {taskStatistics.missingCount > 0 && (
-                    <Chip
-                      label={`${taskStatistics.missingCount} missing`}
-                      color="error"
-                      variant="outlined"
-                      sx={{ color: 'white', borderColor: 'error.light', fontWeight: 'bold' }}
-                    />
-                  )}
-                  {taskStatistics.upcomingCount > 0 && (
-                    <Chip
-                      label={`${taskStatistics.upcomingCount} upcoming`}
-                      color="warning"
-                      variant="outlined"
-                      sx={{ color: 'white', borderColor: 'warning.light', fontWeight: 'bold' }}
-                    />
-                  )}
-                  {taskStatistics.pendingCount > 0 && (
-                    <Chip
-                      label={`${taskStatistics.pendingCount} pending`}
-                      color="info"
-                      variant="outlined"
-                      sx={{ color: 'white', borderColor: 'info.light', fontWeight: 'bold' }}
-                    />
-                  )}
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Box>
-      )}
 
       <Box sx={{ mt: 4, mb: 3 }}>
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           Quick Actions
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={loading ? <CircularProgress size={24} /> : <PdfIcon />}
-              onClick={handleGenerateReport}
-              disabled={loading}
-              sx={{
-                borderRadius: 2,
-                textTransform: 'none',
-                py: 1.5
-              }}
-            >
-              Monthly Report
-            </Button>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<PdfIcon />}
-              onClick={handleGenerateExpenditureList}
-              disabled={loading}
-              sx={{
-                borderRadius: 2,
-                textTransform: 'none',
-                py: 1.5
-              }}
-            >
-              Expenditure List
-            </Button>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<SmartToyIcon />}
-              onClick={() => setSubbaraoOpen(true)}
-              sx={{
-                borderRadius: 2,
-                textTransform: 'none',
-                py: 1.5,
-                background: 'linear-gradient(45deg, #9c27b0 30%, #e91e63 90%)',
-                '&:hover': {
-                  background: 'linear-gradient(45deg, #7b1fa2 30%, #c2185b 90%)',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
-                },
-                transition: 'all 0.3s ease',
-              }}
-            >
-              AI Assistant
-            </Button>
-          </Grid>
+          {/* Mobile: Compact action cards */}
+          {isMobile ? (
+            <>
+      <Grid item xs={12}>
+        <Button
+          fullWidth
+          variant="contained"
+          onClick={() => setGraphModalOpen(true)}
+          sx={{
+            borderRadius: 2,
+            textTransform: 'none',
+            py: 1.25,
+            px: 1,
+            minHeight: 48,
+            fontSize: '0.85rem',
+            fontWeight: 700,
+            background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)',
+              transform: 'translateY(-2px)',
+              boxShadow: '0 4px 15px rgba(37, 99, 235, 0.4)',
+            },
+            transition: 'all 0.3s ease',
+            boxShadow: '0 4px 15px rgba(37, 99, 235, 0.3)',
+          }}
+        >
+          📈 View Analytics
+        </Button>
+      </Grid>
+              <Grid item xs={6}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={loading ? <CircularProgress size={20} /> : <PdfIcon sx={{ fontSize: 20 }} />}
+                  onClick={handleGenerateReport}
+                  disabled={loading}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.25,
+                    px: 1,
+                    minHeight: 48,
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    borderColor: 'primary.light',
+                    color: 'primary.main',
+                    backgroundColor: 'rgba(33, 150, 243, 0.05)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                      borderColor: 'primary.main',
+                      transform: 'translateY(-1px)',
+                    },
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 8px rgba(33, 150, 243, 0.15)',
+                  }}
+                >
+                  Monthly Report
+                </Button>
+              </Grid>
+              <Grid item xs={6}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<PdfIcon sx={{ fontSize: 20 }} />}
+                  onClick={handleGenerateExpenditureList}
+                  disabled={loading}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.25,
+                    px: 1,
+                    minHeight: 48,
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    borderColor: 'secondary.light',
+                    color: 'secondary.main',
+                    backgroundColor: 'rgba(156, 39, 176, 0.05)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                      borderColor: 'secondary.main',
+                      transform: 'translateY(-1px)',
+                    },
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 8px rgba(156, 39, 176, 0.15)',
+                  }}
+                >
+                  Expenditure List
+                </Button>
+              </Grid>
+              <Grid item xs={12}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  startIcon={<SmartToyIcon sx={{ fontSize: 20 }} />}
+                  onClick={() => setSubbaraoOpen(true)}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.25,
+                    px: 1,
+                    minHeight: 48,
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #9c27b0 0%, #e91e63 100%)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #7b1fa2 0%, #c2185b 100%)',
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 4px 15px rgba(156, 39, 176, 0.4)',
+                    },
+                    transition: 'all 0.3s ease',
+                    boxShadow: '0 4px 15px rgba(156, 39, 176, 0.3)',
+                  }}
+                >
+                  AI Assistant
+                </Button>
+              </Grid>
+            </>
+          ) : (
+            /* Desktop: Original layout */
+            <>
+              <Grid item xs={12} md={4}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={loading ? <CircularProgress size={24} /> : <PdfIcon />}
+                  onClick={handleGenerateReport}
+                  disabled={loading}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.5
+                  }}
+                >
+                  Monthly Report
+                </Button>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<PdfIcon />}
+                  onClick={handleGenerateExpenditureList}
+                  disabled={loading}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.5
+                  }}
+                >
+                  Expenditure List
+                </Button>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  startIcon={<SmartToyIcon />}
+                  onClick={() => setSubbaraoOpen(true)}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    py: 1.5,
+                    background: 'linear-gradient(45deg, #9c27b0 30%, #e91e63 90%)',
+                    '&:hover': {
+                      background: 'linear-gradient(45deg, #7b1fa2 30%, #c2185b 90%)',
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
+                    },
+                    transition: 'all 0.3s ease',
+                  }}
+                >
+                  AI Assistant
+                </Button>
+              </Grid>
+            </>
+          )}
         </Grid>
       </Box>
-
+      
       <Box sx={{ mt: 4 }}>
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           Financial Overview
         </Typography>
         {isMobile ? (
-          // Mobile: Card/List layout
+          // Mobile: Ultra-Advanced Premium Card/List layout
           <Box>
             {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
-              <Box key={date} sx={{ mb: 2, p: 2, borderRadius: 2, backgroundColor: 'background.paper', boxShadow: 1 }}>
+              <Box key={date} sx={{ 
+                mb: 2, 
+                borderRadius: 2.5, 
+                overflow: 'hidden', 
+                backgroundColor: 'background.paper', 
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+                border: '1px solid',
+                borderColor: 'divider',
+                backdropFilter: 'blur(10px)'
+              }}>
+                {/* Day Header with Clean Horizontal Industry Standard Design */}
                 <Box 
                   sx={{ 
                     cursor: 'pointer',
-                    p: 1,
-                    borderRadius: 1,
-                    '&:hover': { backgroundColor: 'action.hover' },
-                    mb: 1
+                    p: 2,
+                    backgroundColor: 'background.paper',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    '&:hover': { 
+                      backgroundColor: 'action.hover',
+                    },
+                    transition: 'background-color 0.2s ease',
+                    position: 'relative',
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: '3px',
+                      backgroundColor: 'primary.main'
+                    }
                   }}
                   onClick={() => handleDayClick({ date, transactions, dayIncome, dayExpense })}
                 >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{format(new Date(date), 'dd MMM yyyy')}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    <Box component="span" sx={{ color: 'success.main', fontWeight: 600 }}>Income: ₹{dayIncome.toLocaleString('en-IN')}</Box> |
-                    <Box component="span" sx={{ color: 'error.main', fontWeight: 600 }}>Expense: ₹{dayExpense.toLocaleString('en-IN')}</Box>
-                  </Typography>
-                  <Typography variant="caption" color="primary.main" sx={{ display: 'block', mt: 0.5, fontSize: '11px' }}>
-                    Tap to view all transactions
-                  </Typography>
-                </Box>
-                {transactions.map((txn) => (
-                  <Box
-                    key={txn.id}
-                    sx={{
-                      mb: 1.2,
-                      py: 0.6,
-                      px: 1.2,
-                      borderRadius: 2.5,
-                      backgroundColor: 'background.paper',
-                      boxShadow: 3,
-                      minWidth: 0,
-                      overflow: 'visible',
-                      position: 'relative',
-                      borderLeft: `4px solid ${txn.type === 'income' ? theme.palette.success.main : theme.palette.error.main}`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 0.1,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => { setSelectedTransaction(txn); setDetailsModalOpen(true); }}
-                  >
-                    {/* First line: Category/Subcategory */}
-                    <Typography variant="body1" sx={{ fontWeight: 700, color: 'text.primary', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-                      {txn.subCategory ? `${txn.category} - ${txn.subCategory}` : txn.category}
-                    </Typography>
-                    {/* Second line: Amount (left) and Actions (right) */}
-                    <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', mt: 0.1 }}>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          color: txn.type === 'income' ? 'success.main' : 'error.main',
-                          fontWeight: 800,
-                          fontSize: 15,
-                          letterSpacing: 0.2,
-                          ml: 0.7,
-                        }}
-                      >
-                        {Math.round(Number(txn.amount)).toLocaleString('en-IN')}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 600, 
+                        color: 'text.primary', 
+                        fontSize: 18
+                      }}>
+                        {format(new Date(date), 'dd MMM yyyy')}
                       </Typography>
-                      <Box sx={{ flex: 1 }} />
-                      <Box sx={{ display: 'flex', gap: 0.2 }}>
-                        <Button size="small" onClick={e => { e.stopPropagation(); setEditTransaction(txn); setIsAddModalOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
-                          <span role="img" aria-label="edit">✏️</span>
-                        </Button>
-                        <Button size="small" color="error" onClick={e => { e.stopPropagation(); setTransactionToDelete(txn); setDeleteDialogOpen(true); }} sx={{ minWidth: 'auto', p: 0.35, borderRadius: '50%', bgcolor: 'grey.100', '&:hover': { bgcolor: 'grey.200' } }}>
-                          <span role="img" aria-label="delete">🗑️</span>
-                        </Button>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                        {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.25 }}>
+                      <Typography variant="body2" sx={{ 
+                        color: 'success.main', 
+                        fontWeight: 600, 
+                        fontSize: 13
+                      }}>
+                        +₹{dayIncome.toLocaleString('en-IN')}
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        color: 'error.main', 
+                        fontWeight: 600, 
+                        fontSize: 13
+                      }}>
+                        -₹{dayExpense.toLocaleString('en-IN')}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+                
+                {/* Transactions List - Premium Design */}
+                <Box sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
+                  {transactions.map((txn, index) => (
+                    <Box
+                      key={txn.id}
+                      sx={{
+                        mb: index < transactions.length - 1 ? 0.75 : 0,
+                        borderRadius: 2,
+                        backgroundColor: 'background.paper',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          backgroundColor: 'action.hover',
+                          transform: 'translateY(-1px)'
+                        },
+                        display: 'grid',
+                        gridTemplateColumns: '6px 1fr',
+                        gridTemplateRows: 'auto auto auto',
+                        gap: 0
+                      }}
+                      onClick={() => { setSelectedTransaction(txn); setDetailsModalOpen(true); }}
+                    >
+                      {/* Type Indicator Stripe - Left edge with space */}
+                      <Box sx={{ 
+                        gridColumn: '1 / 2',
+                        gridRow: '1 / 4',
+                        backgroundColor: txn.type === 'income' ? 'success.main' : 'error.main',
+                        borderTopLeftRadius: 2,
+                        borderBottomLeftRadius: 2,
+                        borderRight: '2px solid rgba(255,255,255,0.8)'
+                      }} />
+                      
+                      {/* Main Content Area - Ultra Compact Unified Design */}
+                      <Box sx={{ 
+                        gridColumn: '2 / 3',
+                        gridRow: '1 / 4',
+                        p: 0.75,
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto',
+                        gridTemplateRows: 'auto auto',
+                        gap: 0.25
+                      }}>
+                        {/* First Row: Title-Subtitle | Amount */}
+                        <Box sx={{ 
+                          gridColumn: '1 / 2',
+                          gridRow: '1 / 2',
+                          borderRadius: 1,
+                          p: 0.15,
+                          overflow: 'hidden',
+                          position: 'relative'
+                        }}>
+                          <Box sx={{ 
+                            overflow: 'auto',
+                            whiteSpace: 'nowrap',
+                            '&::-webkit-scrollbar': {
+                              height: 2.5
+                            },
+                            '&::-webkit-scrollbar-track': {
+                              background: 'rgba(0,0,0,0.05)',
+                              borderRadius: 1
+                            },
+                            '&::-webkit-scrollbar-thumb': {
+                              background: 'rgba(0,0,0,0.2)',
+                              borderRadius: 1,
+                              '&:hover': {
+                                background: 'rgba(0,0,0,0.3)'
+                              }
+                            }
+                          }}>
+                            <Typography variant="subtitle1" sx={{ 
+                              fontWeight: 600, 
+                              color: 'text.primary', 
+                              fontSize: 12.5,
+                              minWidth: 'max-content'
+                            }}>
+                              {txn.subCategory ? `${txn.category} - ${txn.subCategory}` : txn.category}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ 
+                          gridColumn: '2 / 3',
+                          gridRow: '1 / 2',
+                          borderRadius: 1,
+                          p: 0.75,
+                          minWidth: 75,
+                          maxWidth: 110,
+                          flexShrink: 1,
+                          overflow: 'hidden',
+                          position: 'relative'
+                        }}>
+                          <Box sx={{ 
+                            overflow: 'auto',
+                            whiteSpace: 'nowrap',
+                            '&::-webkit-scrollbar': {
+                              height: 3.5
+                            },
+                            '&::-webkit-scrollbar-track': {
+                              background: 'rgba(0,0,0,0.05)',
+                              borderRadius: 1.5
+                            },
+                            '&::-webkit-scrollbar-thumb': {
+                              background: 'rgba(0,0,0,0.2)',
+                              borderRadius: 1.5,
+                              '&:hover': {
+                                background: 'rgba(0,0,0,0.3)'
+                              }
+                            }
+                          }}>
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                color: 'text.primary',
+                                fontWeight: 700,
+                                fontSize: 13.5,
+                                textAlign: 'right',
+                                minWidth: 'max-content'
+                              }}
+                            >
+                              ₹{Math.round(Number(txn.amount)).toLocaleString('en-IN')}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Second Row: Description | Edit | Delete */}
+                        {txn.description && (
+                          <Box sx={{ 
+                            gridColumn: '1 / 2',
+                            gridRow: '2 / 3',
+                            borderRadius: 1,
+                            p: 0.35,
+                            maxHeight: 35,
+                            overflow: 'hidden',
+                            position: 'relative'
+                          }}>
+                            <Box sx={{ 
+                              maxHeight: 25,
+                              overflow: 'auto',
+                              '&::-webkit-scrollbar': {
+                                width: 2.5,
+                                height: 2.5
+                              },
+                              '&::-webkit-scrollbar-track': {
+                                background: 'rgba(0,0,0,0.05)',
+                                borderRadius: 1
+                              },
+                              '&::-webkit-scrollbar-thumb': {
+                                background: 'rgba(0,0,0,0.2)',
+                                borderRadius: 1,
+                                '&:hover': {
+                                  background: 'rgba(0,0,0,0.3)'
+                                }
+                              }
+                            }}>
+                              <Typography variant="body2" color="text.secondary" sx={{ 
+                                fontSize: 10.5,
+                                wordWrap: 'break-word',
+                                overflowWrap: 'break-word',
+                                wordBreak: 'normal',
+                                whiteSpace: 'pre-wrap',
+                                lineHeight: 1.15,
+                                pr: 0.35
+                              }}>
+                                {txn.description}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+
+                        <Box sx={{ 
+                          gridColumn: '2 / 3',
+                          gridRow: '2 / 3',
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          alignItems: 'center',
+                          gap: 0.35,
+                          pr: 0.35
+                        }}>
+                          <IconButton
+                            size="small"
+                            onClick={e => { 
+                              e.stopPropagation(); 
+                              setEditTransaction(txn); 
+                              setIsAddModalOpen(true); 
+                            }}
+                            sx={{ 
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              backgroundColor: 'primary.light',
+                              color: 'primary.contrastText',
+                              '&:hover': { 
+                                backgroundColor: 'primary.main',
+                                transform: 'translateY(-1px)'
+                              },
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <EditIcon sx={{ fontSize: 11 }} />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={e => { 
+                              e.stopPropagation(); 
+                              setTransactionToDelete(txn); 
+                              setDeleteDialogOpen(true); 
+                            }}
+                            sx={{ 
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              backgroundColor: 'error.light',
+                              color: 'error.contrastText',
+                              '&:hover': { 
+                                backgroundColor: 'error.main',
+                                transform: 'translateY(-1px)'
+                              },
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <DeleteIcon sx={{ fontSize: 11 }} />
+                          </IconButton>
+                        </Box>
                       </Box>
                     </Box>
-                    {/* Optional: Third line for description, very small */}
-                    {txn.description && (
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.05, ml: 1.2, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {txn.description}
+                  ))}
+                  
+                  {/* Empty state for day with no transactions */}
+                  {transactions.length === 0 && (
+                    <Box sx={{ 
+                      textAlign: 'center', 
+                      py: 3, 
+                      color: 'text.secondary',
+                      backgroundColor: 'background.paper',
+                      borderRadius: 2,
+                      border: '1px dashed',
+                      borderColor: 'divider',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+                        opacity: 0.5
+                      }
+                    }}>
+                      <Typography variant="h6" sx={{ mb: 1, color: 'text.primary', fontWeight: 600 }}>
+                        No transactions
                       </Typography>
-                    )}
-                  </Box>
-                ))}
+                      <Typography variant="body2" sx={{ opacity: 0.7 }}>
+                        Add your first transaction for this day
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
               </Box>
             ))}
+            
+            {/* No transactions overall */}
+            {groupedTransactions.length === 0 && (
+              <Box sx={{ 
+                textAlign: 'center', 
+                py: 6, 
+                color: 'text.secondary',
+                backgroundColor: 'background.paper',
+                borderRadius: 3,
+                border: '2px dashed',
+                borderColor: 'divider',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)',
+                  opacity: 0.6
+                }
+              }}>
+                <Typography variant="h5" sx={{ mb: 1, color: 'text.primary', fontWeight: 700 }}>
+                  No transactions found
+                </Typography>
+                <Typography variant="body1" sx={{ opacity: 0.8 }}>
+                  Add your first transaction to get started
+                </Typography>
+                <Box sx={{ 
+                  mt: 3,
+                  display: 'inline-block',
+                  padding: 2,
+                  borderRadius: 50,
+                  backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                  border: '1px solid rgba(33, 150, 243, 0.3)'
+                }}>
+                  <Typography variant="caption" color="primary.main" sx={{ fontWeight: 700, letterSpacing: '1px' }}>
+                    + ADD TRANSACTION
+                  </Typography>
+                </Box>
+              </Box>
+            )}
           </Box>
         ) : (
           // Desktop: Table layout
@@ -1235,26 +1949,51 @@ const Home = () => {
         <AddIcon />
       </Fab>
 
-  {/* Subbarao Chat Button */}
-      <Fab
-        color="secondary"
-        sx={{ 
-          position: 'fixed', 
-          bottom: isMobile ? 16 : 24, 
-          left: isMobile ? 16 : 24, 
-          zIndex: 1000,
-          bgcolor: 'linear-gradient(45deg, #9c27b0 30%, #e91e63 90%)',
-          '&:hover': {
-            bgcolor: 'linear-gradient(45deg, #7b1fa2 30%, #c2185b 90%)',
-            transform: 'scale(1.1)',
-          },
-          transition: 'all 0.3s ease',
-          boxShadow: '0 6px 25px rgba(156, 39, 176, 0.5)',
-        }}
-  onClick={() => setSubbaraoOpen(!subbaraoOpen)}
-      >
-        <SmartToyIcon />
-      </Fab>
+  {/* Todo Button - Always Visible */}
+      <Box sx={{ position: 'fixed', bottom: 16, left: 16, zIndex: 1000 }}>
+        <Fab
+          color="primary"
+          sx={{ 
+            bgcolor: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+            '&:hover': {
+              bgcolor: 'linear-gradient(45deg, #1976d2 30%, #00bcd4 90%)',
+              transform: 'scale(1.1)',
+            },
+            transition: 'all 0.3s ease',
+            boxShadow: '0 6px 25px rgba(33, 150, 243, 0.5)',
+            position: 'relative',
+            minWidth: 60,
+            minHeight: 60
+          }}
+          onClick={() => navigate('/todo')}
+        >
+          📋
+          {/* Always show badge with actual count */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -8,
+              right: -8,
+              backgroundColor: taskStatistics.pendingCount > 0 ? 'error.main' : 'grey.500',
+              color: 'white',
+              borderRadius: '50%',
+              width: 24,
+              height: 24,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 12,
+              fontWeight: 'bold',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+              animation: taskStatistics.pendingCount > 0 ? 'pulse 2s infinite' : 'none',
+              zIndex: 1001,
+              border: '2px solid white'
+            }}
+          >
+            {taskStatistics.pendingCount}
+          </Box>
+        </Fab>
+      </Box>
 
       {/* AI Assistant */}
         <SubbaraoChat
@@ -1321,6 +2060,124 @@ const Home = () => {
         open={openExpenditureMonthDialog}
         onClose={() => setOpenExpenditureMonthDialog(false)}
       />
+
+      {/* Add the MonthDialog to the JSX */}
+      <Dialog 
+        open={openMonthDialog} 
+        onClose={() => setOpenMonthDialog(false)} 
+        maxWidth="xs" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: 3
+          }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', fontWeight: 'bold', fontSize: '1.1rem', pb: 1 }}>
+          Select Month & Year
+        </DialogTitle>
+        <DialogContent sx={{ p: 2 }}>
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <DatePicker
+              views={["year", "month"]}
+              label="Choose Month"
+              minDate={new Date('2000-01-01')}
+              maxDate={new Date('2100-12-31')}
+              value={selectedMonth}
+              onChange={(newDate) => {
+                setSelectedMonth(newDate);
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  fullWidth
+                  sx={{ 
+                    mt: 1,
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 1,
+                      '&:hover': {
+                        backgroundColor: 'grey.50',
+                      },
+                      '&.Mui-focused': {
+                        backgroundColor: 'grey.50',
+                      }
+                    }
+                  }}
+                />
+              )}
+            />
+          </LocalizationProvider>
+          
+          {/* Navigation buttons - simple layout */}
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                const prevMonth = new Date(selectedMonth);
+                prevMonth.setMonth(prevMonth.getMonth() - 1);
+                setSelectedMonth(prevMonth);
+              }}
+              sx={{
+                minWidth: 40,
+                px: 1,
+                py: 0.5,
+                fontSize: '1rem'
+              }}
+            >
+              ←
+            </Button>
+            <Typography variant="body1" sx={{ fontWeight: 'bold', minWidth: 120, textAlign: 'center' }}>
+              {format(selectedMonth, 'MMM - yyyy')}
+            </Typography>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                const nextMonth = new Date(selectedMonth);
+                nextMonth.setMonth(nextMonth.getMonth() + 1);
+                setSelectedMonth(nextMonth);
+              }}
+              sx={{
+                minWidth: 40,
+                px: 1,
+                py: 0.5,
+                fontSize: '1rem'
+              }}
+            >
+              →
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
+          <Button 
+            onClick={() => setOpenMonthDialog(false)} 
+            color="inherit"
+            variant="outlined"
+            sx={{
+              borderRadius: 1,
+              px: 2,
+              py: 0.75,
+              fontWeight: 'bold'
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => setOpenMonthDialog(false)} 
+            variant="contained"
+            sx={{
+              borderRadius: 1,
+              px: 2,
+              py: 0.75,
+              fontWeight: 'bold',
+              backgroundColor: 'primary.main',
+              color: 'white'
+            }}
+          >
+            Apply
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Transaction Details Modal */}
       <Dialog
@@ -1426,6 +2283,219 @@ const Home = () => {
               </Fab>
             </Tooltip>
           </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Graph Modal - Professional Recharts Implementation */}
+      <Dialog
+        open={graphModalOpen}
+        onClose={() => setGraphModalOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            maxWidth: isMobile ? '95vw' : '900px',
+            maxHeight: isMobile ? '90vh' : '80vh'
+          }
+        }}
+        BackdropProps={{
+          onClick: (e) => {
+            if (e.target.classList.contains('MuiBackdrop-root')) {
+              setGraphModalOpen(false);
+            }
+          },
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          pb: 1,
+          bgcolor: 'primary.main',
+          color: 'white'
+        }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: isMobile ? '16px' : '18px' }}>
+              Expenditure Analysis
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, fontSize: isMobile ? '11px' : '12px' }}>
+              {format(selectedMonth, 'MMMM yyyy')}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <IconButton 
+              onClick={() => setGraphModalOpen(false)} 
+              sx={{ color: 'white' }}
+              size="small"
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: isMobile ? 2 : 3, bgcolor: 'background.paper' }}>
+          {/* Professional Recharts Graph */}
+          <Box sx={{ 
+            height: isMobile ? 300 : 400, 
+            width: '100%',
+            mb: 2
+          }}>
+            <ResponsiveContainer width="100%" height="100%">
+              {graphType === 'bar' ? (
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#6b7280"
+                    fontSize={isMobile ? 10 : 12}
+                    tickMargin={10}
+                    axisLine={{ stroke: '#9ca3af' }}
+                    tickLine={{ stroke: '#9ca3af' }}
+                  />
+                  <YAxis 
+                    stroke="#6b7280"
+                    fontSize={isMobile ? 10 : 12}
+                    tickMargin={10}
+                    axisLine={{ stroke: '#9ca3af' }}
+                    tickLine={{ stroke: '#9ca3af' }}
+                    tickFormatter={(value) => `₹${value.toLocaleString('en-IN')}`}
+                  />
+                  <RechartsTooltip content={<ExpenditureTooltip />} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="expense" 
+                    stroke="#ef4444" 
+                    strokeWidth={3}
+                    dot={{ fill: '#ef4444', stroke: '#ef4444', strokeWidth: 2, r: 4 }}
+                    activeDot={{ fill: '#ef4444', stroke: '#ef4444', strokeWidth: 3, r: 6 }}
+                    isAnimationActive={true}
+                    animationDuration={500}
+                  />
+                  <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+                </LineChart>
+              ) : (
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#6b7280"
+                    fontSize={isMobile ? 10 : 12}
+                    tickMargin={10}
+                    axisLine={{ stroke: '#9ca3af' }}
+                    tickLine={{ stroke: '#9ca3af' }}
+                  />
+                  <YAxis 
+                    stroke="#6b7280"
+                    fontSize={isMobile ? 10 : 12}
+                    tickMargin={10}
+                    axisLine={{ stroke: '#9ca3af' }}
+                    tickLine={{ stroke: '#9ca3af' }}
+                    tickFormatter={(value) => `₹${value.toLocaleString('en-IN')}`}
+                  />
+                  <RechartsTooltip content={<ExpenditureTooltip />} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="expense" 
+                    stroke="#ef4444" 
+                    strokeWidth={3}
+                    dot={{ fill: '#ef4444', stroke: '#ef4444', strokeWidth: 2, r: 4 }}
+                    activeDot={{ fill: '#ef4444', stroke: '#ef4444', strokeWidth: 3, r: 6 }}
+                    isAnimationActive={true}
+                    animationDuration={500}
+                  />
+                  <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+                </LineChart>
+              )}
+            </ResponsiveContainer>
+          </Box>
+
+          {/* Graph Stats */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            mt: 1,
+            pt: 1,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            flexWrap: 'wrap',
+            gap: 1
+          }}>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip 
+                label={`Max: ₹${Math.round(Math.max(...dailyTransactions.map(d => d.expense), 0)).toLocaleString('en-IN')}`}
+                variant="outlined"
+                size="small"
+                color="error"
+                sx={{ fontSize: isMobile ? '10px' : '11px' }}
+              />
+              <Chip 
+                label={`Avg: ₹${Math.round(statistics.avgDailyExpense).toLocaleString('en-IN')}`}
+                variant="outlined"
+                size="small"
+                color="warning"
+                sx={{ fontSize: isMobile ? '10px' : '11px' }}
+              />
+              <Chip 
+                label={`Days: ${dailyTransactions.filter(d => d.expense > 0).length}`}
+                variant="outlined"
+                size="small"
+                color="info"
+                sx={{ fontSize: isMobile ? '10px' : '11px' }}
+              />
+              <Chip 
+                label={`Total: ₹${Math.round(statistics.expenses).toLocaleString('en-IN')}`}
+                variant="outlined"
+                size="small"
+                color="primary"
+                sx={{ fontSize: isMobile ? '10px' : '11px' }}
+              />
+            </Box>
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: isMobile ? '10px' : '12px' }}>
+              Click points to view day details
+            </Typography>
+          </Box>
+        </DialogContent>
+
+        {/* Graph Modal Actions */}
+        <DialogActions sx={{ 
+          p: isMobile ? 2 : 3, 
+          bgcolor: 'background.paper',
+          justifyContent: 'space-between',
+          borderTop: '1px solid',
+          borderColor: 'divider'
+        }}>
+          <Button 
+            onClick={() => setGraphModalOpen(false)} 
+            color="inherit"
+            sx={{ 
+              textTransform: 'none',
+              fontSize: isMobile ? '12px' : '14px',
+              fontWeight: 600
+            }}
+          >
+            Close
+          </Button>
+          <Button 
+            onClick={handleGraphShare} 
+            variant="contained" 
+            startIcon={<ShareIcon />}
+            sx={{ 
+              textTransform: 'none',
+              fontSize: isMobile ? '12px' : '14px',
+              fontWeight: 600,
+              bgcolor: '#1976d2',
+              '&:hover': {
+                bgcolor: '#1565c0'
+              },
+              px: isMobile ? 2 : 3,
+              py: isMobile ? 1 : 1.25
+            }}
+          >
+            {isMobile ? '📱 Share Image' : 'Share Image'}
+          </Button>
         </DialogActions>
       </Dialog>
 
