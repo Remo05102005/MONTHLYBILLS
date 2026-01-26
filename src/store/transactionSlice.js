@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { addTransactionToDB, updateTransactionInDB, deleteTransactionFromDB, subscribeToTransactions, fetchTransactionsByDateRange } from '../firebase/transactions';
+import { addTransactionToDB, updateTransactionInDB, deleteTransactionFromDB, subscribeToTransactions, fetchTransactionsByDateRange, fetchAllTransactions } from '../firebase/transactions';
 import { auth } from '../firebase/config';
 
 const initialState = {
@@ -12,13 +12,38 @@ export const fetchTransactions = createAsyncThunk(
   'transactions/fetchTransactions',
   async (_, { dispatch }) => {
     const uid = auth.currentUser.uid;
-    return new Promise((resolve) => {
-      subscribeToTransactions(uid, (data) => {
-        const txs = data ? Object.entries(data).map(([id, t]) => ({ id, ...t })) : [];
-        dispatch(setTransactions(txs));
-        resolve();
-      });
-    });
+    try {
+      // Fetch all transactions using the new structure
+      const transactions = await fetchAllTransactions(uid);
+      const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
+      dispatch(setTransactions(txs));
+      return txs;
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      throw error;
+    }
+  }
+);
+
+export const fetchTransactionsForCurrentMonth = createAsyncThunk(
+  'transactions/fetchTransactionsForCurrentMonth',
+  async (_, { dispatch }) => {
+    const uid = auth.currentUser.uid;
+    try {
+      // Get current month range
+      const now = new Date();
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      
+      // Fetch transactions for current month
+      const transactions = await fetchTransactionsByDateRange(uid, startDate, endDate);
+      const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
+      dispatch(setTransactions(txs));
+      return txs;
+    } catch (error) {
+      console.error('Error fetching transactions for current month:', error);
+      throw error;
+    }
   }
 );
 
@@ -58,9 +83,9 @@ export const updateTransactionAsync = createAsyncThunk(
 
 export const deleteTransactionAsync = createAsyncThunk(
   'transactions/deleteTransactionAsync',
-  async (id) => {
+  async ({ id, monthYearPath }) => {
     const uid = auth.currentUser.uid;
-    await deleteTransactionFromDB(uid, id);
+    await deleteTransactionFromDB(uid, id, monthYearPath);
     return id;
   }
 );
@@ -95,6 +120,44 @@ const transactionSlice = createSlice({
         state.loading = false;
       })
       .addCase(fetchTransactionsByMonth.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message;
+      })
+      .addCase(deleteTransactionAsync.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(deleteTransactionAsync.fulfilled, (state, action) => {
+        state.loading = false;
+        // Remove the deleted transaction from the state
+        state.transactions = state.transactions.filter(txn => txn.id !== action.payload);
+      })
+      .addCase(deleteTransactionAsync.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message;
+      })
+      .addCase(updateTransactionAsync.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(updateTransactionAsync.fulfilled, (state, action) => {
+        state.loading = false;
+        // Update the transaction in the state
+        const index = state.transactions.findIndex(txn => txn.id === action.payload.id);
+        if (index !== -1) {
+          state.transactions[index] = { ...state.transactions[index], ...action.payload.transaction };
+        }
+      })
+      .addCase(updateTransactionAsync.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message;
+      })
+      .addCase(addTransactionAsync.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(addTransactionAsync.fulfilled, (state) => {
+        state.loading = false;
+        // The transaction will be fetched again by the parent component
+      })
+      .addCase(addTransactionAsync.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message;
       });

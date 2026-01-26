@@ -66,8 +66,8 @@ import {
   Share as ShareIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync } from '../store/transactionSlice';
-import { fetchTransactionsByDateRange } from '../firebase/transactions';
+import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync, fetchTransactionsForCurrentMonth, fetchTransactionsByMonth } from '../store/transactionSlice';
+import { fetchTransactionsByDateRange, fetchTransactionsForMonth } from '../firebase/transactions';
 import { auth } from '../firebase/config';
 import { generateMonthlyReport } from '../utils/reportGenerator';
 import { jsPDF } from 'jspdf';
@@ -123,13 +123,23 @@ const Home = () => {
 
   useEffect(() => {
     if (currentUser) {
-      dispatch(fetchTransactions());
+      dispatch(fetchTransactionsForCurrentMonth());
       dispatch(fetchTodos());
     } else {
       dispatch(setTransactions([]));
     }
     // eslint-disable-next-line
   }, [currentUser]);
+
+  // Fetch transactions when selected month changes
+  useEffect(() => {
+    if (currentUser) {
+      const startDate = startOfMonth(selectedMonth);
+      const endDate = endOfMonth(selectedMonth);
+      dispatch(fetchTransactionsByMonth({ startDate, endDate }));
+    }
+    // eslint-disable-next-line
+  }, [selectedMonth, currentUser]);
 
   const filteredTransactions = useMemo(() => {
     const startDate = startOfMonth(selectedMonth);
@@ -2039,7 +2049,7 @@ const Home = () => {
           </Button>
           <Button onClick={async () => {
             if (transactionToDelete) {
-              await dispatch(deleteTransactionAsync(transactionToDelete.id));
+              await dispatch(deleteTransactionAsync({ id: transactionToDelete.id }));
             }
             setDeleteDialogOpen(false);
             setTransactionToDelete(null);
@@ -2264,21 +2274,21 @@ const Home = () => {
           <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
             {/* Edit: leftmost */}
             <Tooltip title="Edit">
-              <Fab size="small" color="primary" className="popup-action-btn" sx={{ ml: { xs: 0, sm: 2 } }} onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setEditTransaction(selectedTransaction); setIsAddModalOpen(true); }}>
+              <Fab size="small" color="primary" className="popup-action-btn" sx={{ ml: { xs: 0, sm: 2 } }} onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setEditTransaction(selectedTransaction); setIsAddModalOpen(true); }} aria-label="Edit transaction">
                 <EditIcon />
               </Fab>
             </Tooltip>
             {/* Delete: center */}
             <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
               <Tooltip title="Delete">
-                <Fab size="small" color="error" className="popup-action-btn" onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setTransactionToDelete(selectedTransaction); setDeleteDialogOpen(true); }}>
+                <Fab size="small" color="error" className="popup-action-btn" onClick={e => { e.stopPropagation(); setDetailsModalOpen(false); setTransactionToDelete(selectedTransaction); setDeleteDialogOpen(true); }} aria-label="Delete transaction">
                   <DeleteIcon />
                 </Fab>
               </Tooltip>
             </Box>
             {/* Share: rightmost */}
             <Tooltip title="Share">
-              <Fab size="small" color="secondary" className="popup-action-btn" sx={{ mr: { xs: 0, sm: 2 } }} onClick={async e => { e.stopPropagation(); await handleShare(); }}>
+              <Fab size="small" color="secondary" className="popup-action-btn" sx={{ mr: { xs: 0, sm: 2 } }} onClick={async e => { e.stopPropagation(); await handleShare(); }} aria-label="Share transaction">
                 <ShareIcon />
               </Fab>
             </Tooltip>
