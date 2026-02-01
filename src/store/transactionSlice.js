@@ -65,10 +65,48 @@ export const fetchTransactionsByMonth = createAsyncThunk(
 
 export const addTransactionAsync = createAsyncThunk(
   'transactions/addTransactionAsync',
-  async (transaction) => {
+  async (transaction, { dispatch, getState }) => {
     const uid = auth.currentUser.uid;
-    await addTransactionToDB(uid, transaction);
-    return transaction;
+    try {
+      // Add transaction to Firebase
+      await addTransactionToDB(uid, transaction);
+      
+      // Get current state to determine which transactions to fetch
+      const currentState = getState();
+      const currentTransactions = currentState.transactions.transactions;
+      
+      // Determine if we need to fetch transactions for the current month
+      // Check if the new transaction's date falls within the currently displayed month
+      const newTransactionDate = new Date(transaction.date);
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const transactionMonth = newTransactionDate.getMonth();
+      const transactionYear = newTransactionDate.getFullYear();
+      
+      // If the transaction is for the current month, refresh the current month's transactions
+      if (transactionMonth === currentMonth && transactionYear === currentYear) {
+        // Fetch transactions for current month to include the new transaction
+        const now = new Date();
+        const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        
+        const transactions = await fetchTransactionsByDateRange(uid, startDate, endDate);
+        const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
+        dispatch(setTransactions(txs));
+        return { transaction, updatedTransactions: txs };
+      } else {
+        // For transactions in other months, just add to the existing state
+        const updatedTransactions = [...currentTransactions, { 
+          ...transaction, 
+          id: transaction.id || Date.now().toString() // Ensure we have an ID
+        }];
+        dispatch(setTransactions(updatedTransactions));
+        return { transaction, updatedTransactions };
+      }
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      throw error;
+    }
   }
 );
 
@@ -155,11 +193,12 @@ const transactionSlice = createSlice({
       })
       .addCase(addTransactionAsync.fulfilled, (state) => {
         state.loading = false;
-        // The transaction will be fetched again by the parent component
+        // State is updated within the thunk itself based on the transaction date
       })
       .addCase(addTransactionAsync.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message;
+        state.error = action.error.message || 'Failed to add transaction';
+        console.error('addTransactionAsync rejected:', action.error);
       });
   }
 });

@@ -37,6 +37,8 @@ import {
   Select,
   FormControl as MuiFormControl,
   InputLabel,
+  Drawer,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -47,15 +49,40 @@ import {
   Share as ShareIcon,
   PictureAsPdf as PdfIcon,
   Image as ImageIcon,
+  Restaurant as RestaurantIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { format, isSameDay, parseISO, isAfter, startOfDay } from 'date-fns';
+import { format, isSameDay, parseISO, isAfter, startOfDay, subDays } from 'date-fns';
+import html2canvas from 'html2canvas';
 import { useAuth } from '../contexts/AuthContext';
-import { addWeightToDB, updateWeightInDB, deleteWeightFromDB, subscribeToWeights, fetchLast30DaysWeights, fetchHeight, saveHeight, fetchTargetWeight, saveTargetWeight, fetchGender, saveGender } from '../firebase/weight';
+import { 
+  addWeightToDB, 
+  updateWeightInDB, 
+  deleteWeightFromDB, 
+  subscribeToWeights,
+  fetchLast30DaysWeights,
+  fetchHeight,
+  saveHeight,
+  fetchTargetWeight,
+  saveTargetWeight,
+  fetchGender,
+  saveGender,
+  addFoodToWeightRecord,
+  updateFoodInWeightRecord,
+  deleteFoodFromWeightRecord,
+  subscribeToFoodInWeightRecord
+} from '../firebase/weight';
+import { addFoodIntakeToDB, updateFoodIntakeInDB, deleteFoodIntakeFromDB, subscribeToFoodIntake } from '../firebase/food';
 import { generateWeightReport, generateWeightImage } from '../utils/pdfGenerator';
+import FoodIntakeModal from '../components/FoodIntakeModal';
+import FoodIntakeList from '../components/FoodIntakeList';
 
 // BMI calculation functions
 const calculateBMI = (weight, height) => {
@@ -92,7 +119,7 @@ const Weight = () => {
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingWeight, setEditingWeight] = useState(null);
-  const [selectedDays, setSelectedDays] = useState(isMobile ? 14 : 30);
+  const [selectedDays, setSelectedDays] = useState(isMobile ? 7 : 30);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM')); // Current month by default
   const [dateRange, setDateRange] = useState(null); // For custom date filtering
   const [showDateFilter, setShowDateFilter] = useState(false);
@@ -104,6 +131,17 @@ const Weight = () => {
   const [gender, setGender] = useState('male'); // 'male' or 'female'
   const [modalMode, setModalMode] = useState('add-weight'); // 'add-weight', 'set-height', 'set-target', or 'set-gender'
   const [confirmDeleteWeight, setConfirmDeleteWeight] = useState(null);
+
+  // Food Intake State
+  const [foodIntakeData, setFoodIntakeData] = useState([]);
+  const [foodIntakeLoading, setFoodIntakeLoading] = useState(false);
+  const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
+  const [editingFoodEntry, setEditingFoodEntry] = useState(null);
+  const [confirmDeleteFood, setConfirmDeleteFood] = useState(null);
+  const [isFoodListOpen, setIsFoodListOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareProgress, setShareProgress] = useState('');
 
   // Form data
   const [formData, setFormData] = useState({
@@ -117,15 +155,49 @@ const Weight = () => {
   useEffect(() => {
     if (currentUser) {
       const unsubscribe = subscribeToWeights(currentUser.uid, (data) => {
+        console.log('Weight data received:', data);
         if (data) {
-          const weightsArray = Object.entries(data).map(([id, weight]) => ({
-            id,
-            ...weight,
-            date: new Date(weight.date),
-          }));
+          const weightsArray = Object.entries(data).map(([id, weight]) => {
+            console.log('Processing weight entry:', { id, weight });
+            // Try to parse date in different formats
+            let dateObj;
+            if (weight.date) {
+              // Try ISO string format first
+              dateObj = new Date(weight.date);
+              // If invalid date, try other formats
+              if (isNaN(dateObj.getTime())) {
+                // Try YYYY-MM-DD format
+                const parts = weight.date.split('-');
+                if (parts.length === 3) {
+                  dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                }
+              }
+            } else {
+              // Fallback to current date if no date provided
+              dateObj = new Date();
+            }
+            
+            console.log('Parsed date:', dateObj, 'for weight date:', weight.date);
+            
+            // Create a clean weight object without nested properties that might cause issues
+            const cleanWeight = {
+              id,
+              weight: weight.weight,
+              createdAt: weight.createdAt,
+              updatedAt: weight.updatedAt,
+              date: dateObj,
+            };
+            
+            console.log('Clean weight object:', cleanWeight);
+            
+            return cleanWeight;
+          });
+          console.log('Processed weights array:', weightsArray);
           weightsArray.sort((a, b) => b.date - a.date); // Most recent first
+          console.log('Setting weights state, length:', weightsArray.length);
           setWeights(weightsArray);
         } else {
+          console.log('No weight data received');
           setWeights([]);
         }
         setLoading(false);
@@ -182,6 +254,20 @@ const Weight = () => {
     };
     loadGender();
   }, [currentUser]);
+
+  // Food Intake Subscription for Weight Records
+  useEffect(() => {
+    if (currentUser && weights.length > 0) {
+      // Subscribe to food intake for the selected weight record
+      const weightToSubscribe = editingWeight || weights[0];
+      const unsubscribe = subscribeToFoodInWeightRecord(currentUser.uid, weightToSubscribe.id, (data) => {
+        setFoodIntakeData(data);
+        setFoodIntakeLoading(false);
+      });
+
+      return () => unsubscribe();
+    }
+  }, [currentUser, weights, editingWeight]);
 
   const handleOpenAddModal = (weight = null) => {
     if (weight) {
@@ -334,6 +420,67 @@ const Weight = () => {
     setConfirmDeleteWeight(null);
   };
 
+  // Food Intake Handlers
+  const handleOpenFoodModal = (foodEntry = null) => {
+    setEditingFoodEntry(foodEntry);
+    setIsFoodModalOpen(true);
+  };
+
+  const handleCloseFoodModal = () => {
+    setIsFoodModalOpen(false);
+    setEditingFoodEntry(null);
+  };
+
+  const handleSaveFoodIntake = async (foodData) => {
+    try {
+      if (!weights.length) {
+        setError('Please add a weight entry first before adding food intake.');
+        return;
+      }
+
+      const latestWeight = weights[0];
+      
+      if (editingFoodEntry) {
+        await updateFoodInWeightRecord(currentUser.uid, latestWeight.id, editingFoodEntry.id, foodData);
+        setSuccess('Food entry updated successfully! 🍎');
+      } else {
+        await addFoodToWeightRecord(currentUser.uid, latestWeight.id, foodData);
+        setSuccess('Food entry added successfully! 🍎');
+      }
+      handleCloseFoodModal();
+    } catch (err) {
+      console.error('Error saving food intake:', err);
+      setError('Failed to save food entry. Please try again.');
+    }
+  };
+
+  const handleDeleteFoodIntake = async (foodEntryId) => {
+    try {
+      if (!weights.length) {
+        setError('No weight entries found. Cannot delete food entry.');
+        return;
+      }
+
+      const latestWeight = weights[0];
+      await deleteFoodFromWeightRecord(currentUser.uid, latestWeight.id, foodEntryId);
+      setSuccess('Food entry deleted successfully! 🗑️');
+    } catch (err) {
+      console.error('Error deleting food intake:', err);
+      setError('Failed to delete food entry. Please try again.');
+    }
+  };
+
+  const handleConfirmDeleteFood = async () => {
+    if (confirmDeleteFood) {
+      await handleDeleteFoodIntake(confirmDeleteFood.id);
+      setConfirmDeleteFood(null);
+    }
+  };
+
+  const handleCancelDeleteFood = () => {
+    setConfirmDeleteFood(null);
+  };
+
   // Prepare chart data based on selected days
   const chartData = useMemo(() => {
     const data = [];
@@ -469,12 +616,26 @@ const Weight = () => {
     return Array.from(months).sort().reverse(); // Most recent first
   }, [weights]);
 
+  // Set default selected month to the most recent month with data
+  useEffect(() => {
+    if (availableMonths.length > 0 && selectedMonth === format(new Date(), 'yyyy-MM')) {
+      // If current month has no data, default to the most recent month with data
+      setSelectedMonth(availableMonths[0]);
+    }
+  }, [availableMonths, selectedMonth]);
+
   // Filter weights by selected month
   const filteredWeights = useMemo(() => {
-    if (selectedMonth === 'all') return weights;
-    return weights.filter(weight =>
+    console.log('Filtering weights:', { weights, selectedMonth });
+    if (selectedMonth === 'all') {
+      console.log('Returning all weights:', weights);
+      return weights;
+    }
+    const filtered = weights.filter(weight =>
       format(weight.date, 'yyyy-MM') === selectedMonth
     );
+    console.log('Filtered weights for month:', selectedMonth, filtered);
+    return filtered;
   }, [weights, selectedMonth]);
 
   const CustomTooltip = ({ active, payload, label }) => {
@@ -507,11 +668,17 @@ const Weight = () => {
     return null;
   };
 
+  // Enhanced share functionality with better error handling and user feedback
   const handleShareReport = async (reportData, fileName) => {
     try {
+      setIsSharing(true);
+      setShareProgress('Preparing PDF...');
+
       // Check if Web Share API is available (mobile devices)
       if (navigator.share && navigator.canShare) {
         try {
+          setShareProgress('Converting to shareable format...');
+          
           // Convert PDF to blob for sharing
           const pdfBlob = reportData.output('blob');
 
@@ -520,6 +687,7 @@ const Weight = () => {
 
           // Check if we can share this file
           if (navigator.canShare({ files: [file] })) {
+            setShareProgress('Sharing via Web Share API...');
             await navigator.share({
               title: 'Weight Tracker Report',
               text: 'Check out my weight progress report!',
@@ -531,16 +699,102 @@ const Weight = () => {
           }
         } catch (shareError) {
           console.log('Web Share API failed, falling back to download:', shareError);
+          setShareProgress('Web Share API not available, downloading instead...');
         }
       }
 
       // Fallback to download if Web Share API is not available or fails
+      setShareProgress('Downloading PDF...');
       reportData.save(fileName);
       setSuccess('Report downloaded successfully! 📱');
 
     } catch (err) {
       console.error('Share error:', err);
       setError(`Failed to share report: ${err.message}`);
+    } finally {
+      setIsSharing(false);
+      setShareProgress('');
+    }
+  };
+
+  // Enhanced image sharing with better error handling and user feedback
+  const handleShareImage = async () => {
+    try {
+      setIsSharing(true);
+      setShareProgress('Capturing chart...');
+
+      // Get the chart container reference for image generation
+      const chartContainer = document.querySelector('.recharts-wrapper');
+      if (!chartContainer) {
+        throw new Error('Chart not found. Please try again.');
+      }
+
+      setShareProgress('Generating image...');
+
+      // Use html2canvas to capture the chart
+      const canvas = await html2canvas(chartContainer, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        scrollX: 0,
+        scrollY: 0,
+        width: chartContainer.scrollWidth,
+        height: chartContainer.scrollHeight,
+      });
+
+      setShareProgress('Converting to image format...');
+
+      // Convert canvas to blob
+      const blob = await new Promise(resolve => {
+        canvas.toBlob(resolve, 'image/png', 0.95);
+      });
+
+      if (!blob) {
+        throw new Error('Failed to generate image blob');
+      }
+
+      const filename = `weight_chart_${format(new Date(), 'yyyy-MM-dd')}.png`;
+      const file = new File([blob], filename, { type: 'image/png' });
+
+      // Check if Web Share API is available and supports file sharing
+      if (navigator.share && navigator.canShare) {
+        try {
+          setShareProgress('Sharing via Web Share API...');
+          
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: 'Weight Tracker Chart',
+              text: 'Check out my weight progress chart!',
+              files: [file]
+            });
+
+            setSuccess('Chart shared successfully! 📱');
+            return;
+          }
+        } catch (shareError) {
+          console.log('Web Share API failed for image, falling back to download:', shareError);
+          setShareProgress('Web Share API not available, downloading instead...');
+        }
+      }
+
+      // Fallback to download if Web Share API is not available or fails
+      setShareProgress('Downloading image...');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      setSuccess('Chart downloaded successfully! 📱');
+
+    } catch (error) {
+      console.error('Error sharing image:', error);
+      setError(`Failed to share chart image: ${error.message}`);
+    } finally {
+      setIsSharing(false);
+      setShareProgress('');
     }
   };
 
@@ -649,7 +903,7 @@ const Weight = () => {
                   label={`${selectedDays} days`}
                   size="small"
                   onClick={() => {
-                    const days = [7, 30, 60, 90, 120, 365];
+                    const days = isMobile ? [7, 14, 30] : [7, 30, 60, 90, 120, 365];
                     const currentIndex = days.indexOf(selectedDays);
                     const nextIndex = (currentIndex + 1) % days.length;
                     setSelectedDays(days[nextIndex]);
@@ -658,6 +912,22 @@ const Weight = () => {
                 />
               </Box>
               <Box sx={{ display: 'flex', gap: 1 }}>
+                <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Chart"}>
+                  <IconButton
+                    size="small"
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    sx={{ 
+                      color: 'text.secondary',
+                      bgcolor: isFullscreen ? 'primary.light' : 'transparent',
+                      '&:hover': {
+                        bgcolor: isFullscreen ? 'primary.main' : 'grey.200',
+                        color: isFullscreen ? 'white' : 'text.primary'
+                      }
+                    }}
+                  >
+                    {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                  </IconButton>
+                </Tooltip>
                 <IconButton
                   size="small"
                   onClick={(event) => setShareMenuAnchor(event.currentTarget)}
@@ -668,89 +938,170 @@ const Weight = () => {
               </Box>
             </Box>
 
-            {/* Quick Filter Buttons for Large Datasets */}
-            {weights.length > 30 && (
+            {/* Mobile-optimized Quick Filter Buttons */}
+            {weights.length > 0 && (
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-                <Chip
-                  label="Last 30 Days"
-                  size="small"
-                  onClick={() => setSelectedDays(30)}
-                  variant={selectedDays === 30 ? 'filled' : 'outlined'}
-                  color="primary"
-                />
-                <Chip
-                  label="Last 3 Months"
-                  size="small"
-                  onClick={() => setSelectedDays(90)}
-                  variant={selectedDays === 90 ? 'filled' : 'outlined'}
-                  color="primary"
-                />
-                <Chip
-                  label="Last 6 Months"
-                  size="small"
-                  onClick={() => setSelectedDays(180)}
-                  variant={selectedDays === 180 ? 'filled' : 'outlined'}
-                  color="primary"
-                />
-                {weights.length > 200 && (
-                  <Chip
-                    label="All Time"
-                    size="small"
-                    onClick={() => setSelectedDays(365)}
-                    variant={selectedDays === 365 ? 'filled' : 'outlined'}
-                    color="secondary"
-                  />
+                {isMobile ? (
+                  <>
+                    <Chip
+                      label="7 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(7)}
+                      variant={selectedDays === 7 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="14 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(14)}
+                      variant={selectedDays === 14 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="30 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(30)}
+                      variant={selectedDays === 30 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="60 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(60)}
+                      variant={selectedDays === 60 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="90 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(90)}
+                      variant={selectedDays === 90 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="120 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(120)}
+                      variant={selectedDays === 120 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Chip
+                      label="Last 30 Days"
+                      size="small"
+                      onClick={() => setSelectedDays(30)}
+                      variant={selectedDays === 30 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="Last 3 Months"
+                      size="small"
+                      onClick={() => setSelectedDays(90)}
+                      variant={selectedDays === 90 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    <Chip
+                      label="Last 6 Months"
+                      size="small"
+                      onClick={() => setSelectedDays(180)}
+                      variant={selectedDays === 180 ? 'filled' : 'outlined'}
+                      color="primary"
+                    />
+                    {weights.length > 200 && (
+                      <Chip
+                        label="All Time"
+                        size="small"
+                        onClick={() => setSelectedDays(365)}
+                        variant={selectedDays === 365 ? 'filled' : 'outlined'}
+                        color="secondary"
+                      />
+                    )}
+                  </>
                 )}
               </Box>
             )}
 
             {loading ? (
-              <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <LinearProgress sx={{ width: '50%' }} />
+              <Box sx={{ height: isMobile ? 250 : 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <LinearProgress sx={{ width: '100%' }} />
               </Box>
             ) : (
               <Box sx={{
-                height: 300,
+                height: isMobile ? 250 : 300,
                 width: '100%',
                 overflowX: 'auto',
                 overflowY: 'hidden',
                 '& .recharts-wrapper': {
                   margin: '0 auto',
-                }
+                },
+                // Enhanced scrollbar styling for better horizontal scrolling
+                '&::-webkit-scrollbar': {
+                  height: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  backgroundColor: 'grey.100',
+                  borderRadius: '4px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: 'grey.400',
+                  borderRadius: '4px',
+                  '&:hover': {
+                    backgroundColor: 'grey.600',
+                  },
+                },
               }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: 15, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
                     <XAxis
                       dataKey="date"
                       stroke={theme.palette.text.secondary}
-                      fontSize={12}
+                      fontSize={isMobile ? 10 : 12}
+                      interval={isMobile ? 'preserveStart' : 0}
+                      angle={isMobile ? -45 : 0}
+                      textAnchor={isMobile ? 'end' : 'middle'}
+                      height={isMobile ? 60 : 50}
+                      // Enhanced tick styling for better readability
+                      tick={{ fill: theme.palette.text.secondary, fontSize: isMobile ? 10 : 12 }}
+                      tickLine={{ stroke: theme.palette.divider }}
+                      axisLine={{ stroke: theme.palette.divider }}
                     />
                     <YAxis
                       stroke={theme.palette.text.secondary}
-                      fontSize={12}
+                      fontSize={isMobile ? 10 : 12}
                       domain={['dataMin - 2', 'dataMax + 2']}
+                      width={isMobile ? 40 : 60}
+                      // Enhanced Y-axis styling
+                      tick={{ fill: theme.palette.text.secondary, fontSize: isMobile ? 10 : 12 }}
+                      tickLine={{ stroke: theme.palette.divider }}
+                      axisLine={{ stroke: theme.palette.divider }}
                     />
-                    <RechartsTooltip content={CustomTooltip} />
+                    <RechartsTooltip 
+                      content={CustomTooltip} 
+                      // Enhanced tooltip styling
+                      cursor={{ stroke: '#667eea', strokeWidth: 2, strokeDasharray: '3 3' }}
+                    />
 
                     {/* BMI Zone lines */}
                     <ReferenceLine
                       y={idealWeightRange.min}
                       stroke="#e91e63"
                       strokeDasharray="3 3"
-                      label={{ value: "Underweight", position: "topLeft", fontSize: 10 }}
+                      label={{ value: "Underweight", position: "topLeft", fontSize: isMobile ? 8 : 10 }}
                     />
                     <ReferenceLine
                       y={idealWeightRange.max}
                       stroke="#4caf50"
                       strokeDasharray="3 3"
-                      label={{ value: "Normal", position: "topLeft", fontSize: 10 }}
+                      label={{ value: "Normal", position: "topLeft", fontSize: isMobile ? 8 : 10 }}
                     />
                     <ReferenceLine
                       y={idealWeightRange.max + ((idealWeightRange.max - idealWeightRange.min) * 0.2)}
                       stroke="#ff9800"
                       strokeDasharray="3 3"
-                      label={{ value: "Overweight", position: "topLeft", fontSize: 10 }}
+                      label={{ value: "Overweight", position: "topLeft", fontSize: isMobile ? 8 : 10 }}
                     />
 
                     {/* Target weight line */}
@@ -760,7 +1111,7 @@ const Weight = () => {
                         stroke="#2196f3"
                         strokeWidth={2}
                         strokeDasharray="5 5"
-                        label={{ value: `Target`, position: "topRight", fontSize: 11, fill: "#2196f3" }}
+                        label={{ value: `Target`, position: "topRight", fontSize: isMobile ? 9 : 11, fill: "#2196f3" }}
                       />
                     ) : currentBMI && (
                       <ReferenceLine
@@ -771,7 +1122,7 @@ const Weight = () => {
                         label={{
                           value: `BMI Target: ${currentBMI < 18.5 ? idealWeightRange.min.toFixed(1) : idealWeightRange.max.toFixed(1)}kg`,
                           position: "topRight",
-                          fontSize: 11,
+                          fontSize: isMobile ? 9 : 11,
                           fill: "#2196f3"
                         }}
                       />
@@ -781,9 +1132,9 @@ const Weight = () => {
                       type="monotone"
                       dataKey="weight"
                       stroke="#667eea"
-                      strokeWidth={3}
-                      dot={{ fill: '#667eea', strokeWidth: 2, r: 4 }}
-                      activeDot={{ r: 6, stroke: '#667eea', strokeWidth: 2 }}
+                      strokeWidth={isMobile ? 2 : 3}
+                      dot={{ fill: '#667eea', strokeWidth: isMobile ? 1 : 2, r: isMobile ? 3 : 4 }}
+                      activeDot={{ r: isMobile ? 4 : 6, stroke: '#667eea', strokeWidth: isMobile ? 1 : 2 }}
                       connectNulls={true}
                     />
                   </LineChart>
@@ -791,27 +1142,27 @@ const Weight = () => {
               </Box>
             )}
 
-            {/* BMI Categories Legend */}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2, justifyContent: 'center' }}>
+            {/* BMI Categories Legend - Mobile optimized */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 0.5 : 1, mt: 2, justifyContent: 'center' }}>
               <Chip
                 label="Underweight: <18.5"
-                sx={{ bgcolor: '#e91e63', color: 'white' }}
-                size="small"
+                sx={{ bgcolor: '#e91e63', color: 'white', fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+                size={isMobile ? 'small' : 'small'}
               />
               <Chip
                 label="Normal: 18.5-25"
-                sx={{ bgcolor: '#4caf50', color: 'white' }}
-                size="small"
+                sx={{ bgcolor: '#4caf50', color: 'white', fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+                size={isMobile ? 'small' : 'small'}
               />
               <Chip
                 label="Overweight: 25-30"
-                sx={{ bgcolor: '#ff9800', color: 'white' }}
-                size="small"
+                sx={{ bgcolor: '#ff9800', color: 'white', fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+                size={isMobile ? 'small' : 'small'}
               />
               <Chip
                 label="Obese: >30"
-                sx={{ bgcolor: '#f44336', color: 'white' }}
-                size="small"
+                sx={{ bgcolor: '#f44336', color: 'white', fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+                size={isMobile ? 'small' : 'small'}
               />
             </Box>
           </CardContent>
@@ -822,7 +1173,7 @@ const Weight = () => {
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                📊 Weight Records
+                Weight Records
               </Typography>
 
               {/* Month Selector */}
@@ -858,18 +1209,9 @@ const Weight = () => {
               </Box>
             ) : (
               <Box sx={{ overflowX: 'auto' }}>
-                <Table sx={{ minWidth: 500 }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }}>📅 Date</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">⚖️ Weight</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">📏 BMI</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">📈 Change</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">🎯 Status</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">⚙️ Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
+                {isMobile ? (
+                  // Mobile Card View
+                  <Grid container spacing={2}>
                     {filteredWeights.map((weight, filteredIndex) => {
                       const bmi = calculateBMI(weight.weight, height);
                       const bmiCategory = getBMICategory(bmi);
@@ -877,7 +1219,6 @@ const Weight = () => {
                       // Find the index in the full weights array for status calculation
                       const fullIndex = weights.findIndex(w => w.id === weight.id);
                       const prevWeight = weights[fullIndex + 1]?.weight;
-                      const nextWeight = weights[fullIndex - 1]?.weight;
                       const change = prevWeight ? weight.weight - prevWeight : null;
 
                       // Calculate status indicators based on full dataset
@@ -888,32 +1229,15 @@ const Weight = () => {
                       // Check for local peaks (higher than both neighbors in full dataset)
                       const isPeak = weights.length > 2 &&
                         fullIndex > 0 && fullIndex < weights.length - 1 &&
-                        weight.weight > prevWeight && weight.weight > nextWeight;
+                        weight.weight > prevWeight && weight.weight > weights[fullIndex - 1]?.weight;
 
                       // Check for local valleys (lower than both neighbors in full dataset)
                       const isValley = weights.length > 2 &&
                         fullIndex > 0 && fullIndex < weights.length - 1 &&
-                        weight.weight < prevWeight && weight.weight < nextWeight;
+                        weight.weight < prevWeight && weight.weight < weights[fullIndex - 1]?.weight;
 
-                      // Determine status chips (can have multiple)
+                      // Determine status chips (only Lowest and Highest)
                       const statusChips = [];
-                      if (isLatest) {
-                        statusChips.push(
-                          <Chip
-                            key="latest"
-                            label="Latest"
-                            size="small"
-                            sx={{
-                              bgcolor: 'primary.main',
-                              color: 'white',
-                              fontSize: '0.65rem',
-                              height: 18,
-                              mr: 0.5,
-                              mb: 0.5
-                            }}
-                          />
-                        );
-                      }
                       if (isLowest) {
                         statusChips.push(
                           <Chip
@@ -948,135 +1272,305 @@ const Weight = () => {
                           />
                         );
                       }
-                      if (isPeak) {
-                        statusChips.push(
-                          <Chip
-                            key="peak"
-                            label="Peak"
-                            size="small"
-                            sx={{
-                              bgcolor: '#ff9800',
-                              color: 'white',
-                              fontSize: '0.65rem',
-                              height: 18,
-                              mr: 0.5,
-                              mb: 0.5
-                            }}
-                          />
-                        );
-                      }
-                      if (isValley) {
-                        statusChips.push(
-                          <Chip
-                            key="valley"
-                            label="Valley"
-                            size="small"
-                            sx={{
-                              bgcolor: '#9c27b0',
-                              color: 'white',
-                              fontSize: '0.65rem',
-                              height: 18,
-                              mr: 0.5,
-                              mb: 0.5
-                            }}
-                          />
-                        );
-                      }
 
                       return (
-                        <TableRow
-                          key={weight.id}
-                          sx={{
-                            '&:hover': { bgcolor: 'grey.50' },
-                            bgcolor: fullIndex === 0 ? 'rgba(76, 175, 80, 0.08)' : 'inherit'
-                          }}
-                        >
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                              {format(weight.date, 'MMM dd, yyyy')}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {format(weight.date, 'EEEE')}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Typography variant="body1" sx={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
-                              {weight.weight} kg
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: bmiCategory.color,
-                                  fontSize: '0.9rem'
-                                }}
-                              >
-                                {bmi.toFixed(1)}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: bmiCategory.color, fontSize: '0.7rem' }}>
-                                {bmiCategory.category}
-                              </Typography>
+                        <Grid item xs={12} key={weight.id}>
+                          <Card 
+                            sx={{ 
+                              p: 2,
+                              '&:hover': { bgcolor: 'grey.50' },
+                              bgcolor: fullIndex === 0 ? 'rgba(76, 175, 80, 0.08)' : 'inherit'
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 'medium', fontSize: '0.9rem' }}>
+                                  {format(weight.date, 'MMM dd, yyyy')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                                  {format(weight.date, 'EEEE')}
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.2rem' }}>
+                                  {weight.weight} kg
+                                </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontWeight: 'bold',
+                                      color: bmiCategory.color,
+                                      fontSize: '0.8rem'
+                                    }}
+                                  >
+                                    BMI: {bmi.toFixed(1)}
+                                  </Typography>
+                                  <Chip
+                                    label={bmiCategory.category}
+                                    size="small"
+                                    sx={{
+                                      bgcolor: bmiCategory.color,
+                                      color: 'white',
+                                      fontSize: '0.6rem',
+                                      height: 16
+                                    }}
+                                  />
+                                </Box>
+                              </Box>
                             </Box>
-                          </TableCell>
-                          <TableCell align="center">
-                            {change !== null ? (
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: change > 0 ? '#f44336' : change < 0 ? '#4caf50' : 'text.secondary',
-                                  fontSize: '0.9rem'
+                            
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                              <Box>
+                                {change !== null && (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontWeight: 'bold',
+                                      color: change > 0 ? '#f44336' : change < 0 ? '#4caf50' : 'text.secondary',
+                                      fontSize: '0.8rem'
+                                    }}
+                                  >
+                                    {change > 0 ? '▲ ' : '▼ '}{Math.abs(change).toFixed(1)} kg
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                                {statusChips}
+                              </Box>
+                            </Box>
+
+                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between' }}>
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => {
+                                  setEditingWeight(weight);
+                                  setIsFoodListOpen(true);
+                                }}
+                                sx={{ 
+                                  borderColor: 'primary.main',
+                                  color: 'primary.main',
+                                  fontSize: '0.75rem',
+                                  '&:hover': {
+                                    borderColor: 'primary.dark',
+                                    backgroundColor: 'primary.light',
+                                    color: 'white'
+                                  }
                                 }}
                               >
-                                {change > 0 ? '+' : ''}{change.toFixed(1)} kg
+                                🍽️ View Food
+                              </Button>
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenAddModal(weight)}
+                                  sx={{ color: 'primary.main', p: 0.5 }}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setConfirmDeleteWeight(weight)}
+                                  sx={{ color: 'error.main', p: 0.5 }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            </Box>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                ) : (
+                  // Desktop Table View
+                  <Table sx={{ minWidth: 500 }}>
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'grey.50' }}>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Date</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Weight</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">BMI</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Change</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Food</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filteredWeights.map((weight, filteredIndex) => {
+                        const bmi = calculateBMI(weight.weight, height);
+                        const bmiCategory = getBMICategory(bmi);
+
+                        // Find the index in the full weights array for status calculation
+                        const fullIndex = weights.findIndex(w => w.id === weight.id);
+                        const prevWeight = weights[fullIndex + 1]?.weight;
+                        const nextWeight = weights[fullIndex - 1]?.weight;
+                        const change = prevWeight ? weight.weight - prevWeight : null;
+
+                        // Calculate status indicators based on full dataset
+                        const isLatest = fullIndex === 0;
+                        const isLowest = weights.length > 1 && weight.weight === Math.min(...weights.map(w => w.weight));
+                        const isHighest = weights.length > 1 && weight.weight === Math.max(...weights.map(w => w.weight));
+
+                        // Check for local peaks (higher than both neighbors in full dataset)
+                        const isPeak = weights.length > 2 &&
+                          fullIndex > 0 && fullIndex < weights.length - 1 &&
+                          weight.weight > prevWeight && weight.weight > nextWeight;
+
+                        // Check for local valleys (lower than both neighbors in full dataset)
+                        const isValley = weights.length > 2 &&
+                          fullIndex > 0 && fullIndex < weights.length - 1 &&
+                          weight.weight < prevWeight && weight.weight < nextWeight;
+
+                        // Determine status chips (only Lowest and Highest)
+                        const statusChips = [];
+                        if (isLowest) {
+                          statusChips.push(
+                            <Chip
+                              key="lowest"
+                              label="Lowest"
+                              size="small"
+                              sx={{
+                                bgcolor: '#4caf50',
+                                color: 'white',
+                                fontSize: '0.65rem',
+                                height: 18,
+                                mr: 0.5,
+                                mb: 0.5
+                              }}
+                            />
+                          );
+                        }
+                        if (isHighest) {
+                          statusChips.push(
+                            <Chip
+                              key="highest"
+                              label="Highest"
+                              size="small"
+                              sx={{
+                                bgcolor: '#f44336',
+                                color: 'white',
+                                fontSize: '0.65rem',
+                                height: 18,
+                                mr: 0.5,
+                                mb: 0.5
+                              }}
+                            />
+                          );
+                        }
+
+                        return (
+                          <TableRow
+                            key={weight.id}
+                            sx={{
+                              '&:hover': { bgcolor: 'grey.50' },
+                              bgcolor: fullIndex === 0 ? 'rgba(76, 175, 80, 0.08)' : 'inherit'
+                            }}
+                          >
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                                {format(weight.date, 'MMM dd, yyyy')}
                               </Typography>
-                            ) : (
                               <Typography variant="caption" color="text.secondary">
-                                --
+                                {format(weight.date, 'EEEE')}
                               </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0.5 }}>
-                              {statusChips.length > 0 ? statusChips : (
+                            </TableCell>
+                            <TableCell align="center">
+                              <Typography variant="body1" sx={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
+                                {weight.weight} kg
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 'bold',
+                                    color: bmiCategory.color,
+                                    fontSize: '0.9rem'
+                                  }}
+                                >
+                                  {bmi.toFixed(1)}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: bmiCategory.color, fontSize: '0.7rem' }}>
+                                  {bmiCategory.category}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="center">
+                              {change !== null ? (
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 'bold',
+                                    color: change > 0 ? '#f44336' : change < 0 ? '#4caf50' : 'text.secondary',
+                                    fontSize: '0.9rem'
+                                  }}
+                                >
+                                  {change > 0 ? '+' : ''}{change.toFixed(1)} kg
+                                </Typography>
+                              ) : (
                                 <Typography variant="caption" color="text.secondary">
                                   --
                                 </Typography>
                               )}
-                            </Box>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Tooltip title="Edit entry">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleOpenAddModal(weight)}
-                                sx={{ color: 'primary.main', mr: 1 }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete entry">
-                              <IconButton
-                                size="small"
-                                onClick={() => setConfirmDeleteWeight(weight)}
-                                sx={{ color: 'error.main' }}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Tooltip title="View/Edit Food Intake">
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  onClick={() => {
+                                    // Set the current weight as the context for food tracking
+                                    // This will show food entries for this specific weight record
+                                    setEditingWeight(weight);
+                                    setIsFoodListOpen(true);
+                                  }}
+                                  sx={{ 
+                                    borderColor: 'primary.main',
+                                    color: 'primary.main',
+                                    '&:hover': {
+                                      borderColor: 'primary.dark',
+                                      backgroundColor: 'primary.light',
+                                      color: 'white'
+                                    }
+                                  }}
+                                >
+                                  🍽️ View Food
+                                </Button>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Tooltip title="Edit entry">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenAddModal(weight)}
+                                  sx={{ color: 'primary.main', mr: 1 }}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Delete entry">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setConfirmDeleteWeight(weight)}
+                                  sx={{ color: 'error.main' }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
               </Box>
             )}
           </CardContent>
         </Card>
+
       </Box>
 
       {/* Add Weight FAB */}
@@ -1092,6 +1586,53 @@ const Weight = () => {
       >
         <AddIcon />
       </Fab>
+
+      {/* Food Intake Modal */}
+      <FoodIntakeModal
+        open={isFoodModalOpen}
+        onClose={handleCloseFoodModal}
+        onSave={handleSaveFoodIntake}
+        initialData={editingFoodEntry}
+        isLoading={foodIntakeLoading}
+        date={editingWeight ? format(subDays(editingWeight.date, 1), 'yyyy-MM-dd') : format(subDays(new Date(), 1), 'yyyy-MM-dd')}
+      />
+
+      {/* Delete Food Confirmation Dialog */}
+      <Dialog
+        open={Boolean(confirmDeleteFood)}
+        onClose={handleCancelDeleteFood}
+        maxWidth="xs"
+        fullWidth
+        disableScrollLock={true}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        PaperProps={{
+          sx: { borderRadius: 2 }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 'bold', color: 'error.main' }}>
+          🗑️ Confirm Delete Food Entry
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this food entry?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 2 }}>
+          <Button onClick={handleCancelDeleteFood}>Cancel</Button>
+          <Button
+            onClick={handleConfirmDeleteFood}
+            variant="contained"
+            color="error"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Add/Edit Weight Dialog */}
       <Dialog
@@ -1298,6 +1839,207 @@ const Weight = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Fullscreen Chart Dialog */}
+      <Dialog
+        open={isFullscreen}
+        onClose={() => setIsFullscreen(false)}
+        maxWidth="xl"
+        fullWidth
+        fullScreen
+        disableScrollLock={true}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        PaperProps={{
+          sx: { 
+            borderRadius: 0,
+            backgroundColor: 'white',
+            height: '100vh'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          backgroundColor: 'grey.50',
+          borderBottom: '1px solid',
+          borderColor: 'divider'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              📈 Fullscreen Weight Chart
+            </Typography>
+            <Chip
+              icon={<DateRangeIcon />}
+              label={`${selectedDays} days`}
+              size="small"
+              onClick={() => {
+                const days = [7, 30, 60, 90, 120, 365];
+                const currentIndex = days.indexOf(selectedDays);
+                const nextIndex = (currentIndex + 1) % days.length;
+                setSelectedDays(days[nextIndex]);
+              }}
+              sx={{ cursor: 'pointer', bgcolor: 'primary.light', color: 'white' }}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title="Exit Fullscreen">
+              <IconButton
+                size="small"
+                onClick={() => setIsFullscreen(false)}
+                sx={{ color: 'text.secondary' }}
+              >
+                <FullscreenExitIcon />
+              </IconButton>
+            </Tooltip>
+            <IconButton
+              size="small"
+              onClick={(event) => setShareMenuAnchor(event.currentTarget)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <ShareIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, overflow: 'hidden' }}>
+          <Box sx={{ 
+            height: isMobile ? 400 : 500,
+            width: '100%',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            backgroundColor: 'white',
+            // Enhanced scrollbar styling for fullscreen mode
+            '&::-webkit-scrollbar': {
+              height: '12px',
+              width: '12px',
+            },
+            '&::-webkit-scrollbar-track': {
+              backgroundColor: 'grey.100',
+              borderRadius: '6px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'grey.500',
+              borderRadius: '6px',
+              border: '2px solid white',
+              '&:hover': {
+                backgroundColor: 'grey.700',
+              },
+            },
+            // Add subtle shadow to indicate scrollable content
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: '20px',
+              background: 'linear-gradient(to left, rgba(0,0,0,0.1), transparent)',
+              pointerEvents: 'none',
+              opacity: 0,
+              transition: 'opacity 0.3s ease',
+            },
+            '&:hover::after': {
+              opacity: 1,
+            }
+          }}>
+            <ResponsiveContainer width={chartData.length * 60} height="100%">
+              <LineChart data={chartData} margin={{ top: 20, right: 40, left: 40, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis
+                  dataKey="date"
+                  stroke="#666"
+                  fontSize={isMobile ? 12 : 14}
+                  interval={0} // Show all ticks for detailed view
+                  angle={isMobile ? -45 : -30}
+                  textAnchor={isMobile ? 'end' : 'middle'}
+                  height={isMobile ? 80 : 70}
+                  tick={{ fill: '#666', fontSize: isMobile ? 10 : 12 }}
+                  tickLine={{ stroke: '#e0e0e0' }}
+                  axisLine={{ stroke: '#e0e0e0' }}
+                />
+                <YAxis
+                  stroke="#666"
+                  fontSize={isMobile ? 12 : 14}
+                  domain={['dataMin - 2', 'dataMax + 2']}
+                  width={isMobile ? 60 : 80}
+                  tick={{ fill: '#666', fontSize: isMobile ? 10 : 12 }}
+                  tickLine={{ stroke: '#e0e0e0' }}
+                  axisLine={{ stroke: '#e0e0e0' }}
+                />
+                <RechartsTooltip 
+                  content={CustomTooltip} 
+                  cursor={{ stroke: '#667eea', strokeWidth: 3, strokeDasharray: '5 5' }}
+                  wrapperStyle={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                  }}
+                />
+
+                {/* BMI Zone lines */}
+                <ReferenceLine
+                  y={idealWeightRange.min}
+                  stroke="#e91e63"
+                  strokeDasharray="5 5"
+                  strokeWidth={2}
+                  label={{ value: "Underweight", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
+                />
+                <ReferenceLine
+                  y={idealWeightRange.max}
+                  stroke="#4caf50"
+                  strokeDasharray="5 5"
+                  strokeWidth={2}
+                  label={{ value: "Normal", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
+                />
+                <ReferenceLine
+                  y={idealWeightRange.max + ((idealWeightRange.max - idealWeightRange.min) * 0.2)}
+                  stroke="#ff9800"
+                  strokeDasharray="5 5"
+                  strokeWidth={2}
+                  label={{ value: "Overweight", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
+                />
+
+                {/* Target weight line */}
+                {targetWeight ? (
+                  <ReferenceLine
+                    y={targetWeight}
+                    stroke="#2196f3"
+                    strokeWidth={3}
+                    strokeDasharray="8 8"
+                    label={{ value: `Target`, position: "topRight", fontSize: isMobile ? 12 : 14, fill: "#2196f3" }}
+                  />
+                ) : currentBMI && (
+                  <ReferenceLine
+                    y={currentBMI < 18.5 ? idealWeightRange.min : idealWeightRange.max}
+                    stroke="#2196f3"
+                    strokeWidth={3}
+                    strokeDasharray="8 8"
+                    label={{
+                      value: `BMI Target: ${currentBMI < 18.5 ? idealWeightRange.min.toFixed(1) : idealWeightRange.max.toFixed(1)}kg`,
+                      position: "topRight",
+                      fontSize: isMobile ? 12 : 14,
+                      fill: "#2196f3"
+                    }}
+                  />
+                )}
+
+                <Line
+                  type="monotone"
+                  dataKey="weight"
+                  stroke="#667eea"
+                  strokeWidth={isMobile ? 3 : 4}
+                  dot={{ fill: '#667eea', strokeWidth: isMobile ? 1 : 2, r: isMobile ? 4 : 5 }}
+                  activeDot={{ r: isMobile ? 5 : 7, stroke: '#667eea', strokeWidth: isMobile ? 1 : 2 }}
+                  connectNulls={true}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
       {/* Share Menu */}
       <Menu
         anchorEl={shareMenuAnchor}
@@ -1316,6 +2058,7 @@ const Weight = () => {
             mt: 1,
             boxShadow: 3,
             borderRadius: 2,
+            minWidth: 200,
           }
         }}
         disableScrollLock={true}
@@ -1325,7 +2068,8 @@ const Weight = () => {
             setShareMenuAnchor(null);
             try {
               // Get the chart container reference for PDF
-              const chartContainer = document.querySelector('.recharts-wrapper')?.parentElement;
+              // The chart is inside a ResponsiveContainer, so we need to find the actual chart wrapper
+              const chartContainer = document.querySelector('.recharts-wrapper');
               const doc = await generateWeightReport(weights, selectedDays, idealWeightRange.min, chartContainer ? { current: chartContainer } : null);
               const fileName = `weight_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
               await handleShareReport(doc, fileName);
@@ -1334,36 +2078,100 @@ const Weight = () => {
               setError('Failed to generate PDF report. Please try again.');
             }
           }}
+          disabled={isSharing}
         >
           <ListItemIcon>
             <PdfIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Share PDF" />
+          <ListItemText 
+            primary="Share PDF" 
+            secondary={isSharing && shareProgress.includes('PDF') ? shareProgress : ''}
+          />
+          {isSharing && shareProgress.includes('PDF') && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={20} />
+            </Box>
+          )}
         </MenuItem>
         <MenuItem
           onClick={async () => {
             setShareMenuAnchor(null);
-            try {
-              // We need to get the chart container for image generation
-              const chartContainer = document.querySelector('.recharts-wrapper');
-              if (chartContainer) {
-                await generateWeightImage(weights, selectedDays, idealWeightRange.min, { current: chartContainer });
-                // Note: generateWeightImage already handles sharing internally
-              } else {
-                setError('Chart not found. Please try again.');
-              }
-            } catch (error) {
-              console.error('Error sharing image:', error);
-              setError('Failed to share chart image. Please try again.');
-            }
+            await handleShareImage();
           }}
+          disabled={isSharing}
         >
           <ListItemIcon>
             <ImageIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Share Image" />
+          <ListItemText 
+            primary="Share Image" 
+            secondary={isSharing && shareProgress.includes('image') ? shareProgress : ''}
+          />
+          {isSharing && shareProgress.includes('image') && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={20} />
+            </Box>
+          )}
         </MenuItem>
       </Menu>
+
+      {/* Loading Overlay for Sharing */}
+      {isSharing && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <Card sx={{ p: 3, textAlign: 'center', maxWidth: 400 }}>
+            <CircularProgress size={40} sx={{ mb: 2 }} />
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+              {shareProgress || 'Processing...'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Please wait while we prepare your {shareProgress.includes('PDF') ? 'PDF report' : 'chart image'}.
+            </Typography>
+          </Card>
+        </Box>
+      )}
+
+      {/* Food List Modal */}
+      <Dialog
+        open={isFoodListOpen}
+        onClose={() => setIsFoodListOpen(false)}
+        maxWidth="md"
+        fullWidth
+        disableScrollLock={true}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        PaperProps={{
+          sx: { borderRadius: 2 }
+        }}
+      >
+        <DialogContent>
+          <FoodIntakeList
+            foodIntakeData={foodIntakeData}
+            isLoading={foodIntakeLoading}
+            date={editingWeight ? format(subDays(editingWeight.date, 1), 'yyyy-MM-dd') : format(subDays(new Date(), 1), 'yyyy-MM-dd')}
+            onAdd={() => handleOpenFoodModal()}
+            onEdit={(entry) => handleOpenFoodModal(entry)}
+            onDelete={(entryId) => setConfirmDeleteFood({ id: entryId })}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 2 }}>
+          <Button onClick={() => setIsFoodListOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Success/Error Snackbars */}
       <Snackbar

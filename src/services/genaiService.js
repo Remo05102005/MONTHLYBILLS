@@ -11,19 +11,56 @@ class GenAIService {
 
   async generateContent(prompt, options = {}) {
     try {
+      console.log('=== GENAI SERVICE FULL DEBUG ===');
+      console.log('Prompt length:', prompt.length);
+      console.log('Prompt content:');
+      console.log(prompt);
+      console.log('=== END PROMPT ===');
+      
+      console.log('Options:', options);
+      
       const generationConfig = {
         temperature: options.temperature || 0.7,
         topK: options.topK || 40,
         topP: options.topP || 0.95,
-        maxOutputTokens: options.maxOutputTokens || 1024,
+        maxOutputTokens: options.maxOutputTokens || 4096, // Increased from 2048 to 4096 for nutrient data
         ...options.generationConfig
       };
 
-      const result = await this.model.generateContent(prompt, generationConfig);
+      console.log('Generation config:', generationConfig);
+      console.log('Creating contents array...');
+      const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+      console.log('Contents:', contents);
+      
+      const result = await this.model.generateContent({
+        contents: contents,
+        generationConfig: generationConfig
+      });
+      console.log('Raw result:', result);
+      
       const response = await result.response;
-      return response.text();
+      console.log('Response object:', response);
+      
+      if (!response) {
+        console.error('GenAI Service: No response received from API');
+        return null;
+      }
+      
+      const text = response.text();
+      console.log('=== GENERATED TEXT FULL DEBUG ===');
+      console.log('Text length:', text.length);
+      console.log('Text content:');
+      console.log(text);
+      console.log('=== END GENERATED TEXT ===');
+      
+      return text;
     } catch (error) {
-      console.error('Error generating content:', error);
+      console.error('GenAI Service: Error generating content:', error);
+      console.error('GenAI Service: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }
