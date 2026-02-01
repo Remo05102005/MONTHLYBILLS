@@ -53,7 +53,7 @@ const expenseCategories = {
 
 const incomeCategories = ['Salary', 'Others'];
 
-const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
+const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubcategoryAdded }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { currentUser } = useAuth();
@@ -795,6 +795,11 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData }) => {
                         setCustomSubcategoryInput('');
                         setShowCustomSubcategoryInput(false);
                         setCustomSubcategoryError('');
+                        
+                        // Notify parent component that a custom subcategory was added
+                        if (onCustomSubcategoryAdded) {
+                          onCustomSubcategoryAdded();
+                        }
                       } catch (error) {
                         console.error('Error saving custom subcategory:', error);
                         setCustomSubcategoryError('Failed to save subcategory. Please try again.');

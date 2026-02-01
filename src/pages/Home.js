@@ -110,6 +110,7 @@ const Home = () => {
   const [selectedInsight, setSelectedInsight] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
+  const [customSubcategoryAdded, setCustomSubcategoryAdded] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showDescription, setShowDescription] = useState(false);
@@ -140,6 +141,14 @@ const Home = () => {
     }
     // eslint-disable-next-line
   }, [selectedMonth, currentUser]);
+
+  // Ensure state consistency when transactions change
+  useEffect(() => {
+    // This effect ensures that the filteredTransactions and dailyTransactions
+    // are recalculated when the transactions state changes
+    // The useMemo hooks will automatically handle the recalculation
+    console.log('Transactions state updated, recalculating derived data');
+  }, [transactions]);
 
   const filteredTransactions = useMemo(() => {
     const startDate = startOfMonth(selectedMonth);
@@ -420,14 +429,35 @@ const Home = () => {
         await dispatch(updateTransactionAsync({ id: editTransaction.id, transaction }));
         setSuccess('Transaction updated successfully!');
       } else {
-        await dispatch(addTransactionAsync(transaction));
-        setSuccess('Transaction added successfully!');
+        // For new transactions, ensure we refresh the current month's data
+        const result = await dispatch(addTransactionAsync(transaction));
+        if (result.payload) {
+          setSuccess('Transaction added successfully!');
+        } else {
+          throw new Error('Failed to add transaction');
+        }
       }
       setIsAddModalOpen(false);
       setEditTransaction(null);
+      
+      // Force refresh of current month's transactions to ensure UI is up to date
+      if (!editTransaction || !editTransaction.id) {
+        // For new transactions, refresh the current month's data
+        dispatch(fetchTransactionsForCurrentMonth());
+      }
     } catch (err) {
+      console.error('Error saving transaction:', err);
       setError('Failed to save transaction. Please try again.');
     }
+  };
+
+  // Handle custom subcategory addition
+  const handleCustomSubcategoryAdded = () => {
+    setCustomSubcategoryAdded(true);
+    // Force refresh of current month's transactions to ensure new subcategories appear
+    dispatch(fetchTransactionsForCurrentMonth());
+    // Reset the flag after a short delay
+    setTimeout(() => setCustomSubcategoryAdded(false), 1000);
   };
 
   const handleCloseSnackbar = () => {
@@ -2018,6 +2048,7 @@ const Home = () => {
         onClose={() => { setIsAddModalOpen(false); setEditTransaction(null); }}
         onSave={handleSaveTransaction}
         initialData={editTransaction}
+        onCustomSubcategoryAdded={handleCustomSubcategoryAdded}
       />
 
       <Snackbar
