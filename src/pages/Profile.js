@@ -13,9 +13,14 @@ import {
   Alert,
   Grid,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
-import { PhotoCamera, Logout } from '@mui/icons-material';
+import { PhotoCamera, Logout, Settings as SettingsIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
+import ManageSubcategories from '../components/ManageSubcategories';
 
 export default function Profile() {
   const theme = useTheme();
@@ -31,6 +36,7 @@ export default function Profile() {
     avatar: '',
     telegramUserId: '',
   });
+  const [manageSubcategoriesOpen, setManageSubcategoriesOpen] = useState(false);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -181,6 +187,16 @@ export default function Profile() {
               </Button>
               <Button
                 variant="outlined"
+                color="primary"
+                onClick={() => setManageSubcategoriesOpen(true)}
+                fullWidth
+                startIcon={<SettingsIcon />}
+                sx={{ borderRadius: 2, fontWeight: 600 }}
+              >
+                Manage Subcategories
+              </Button>
+              <Button
+                variant="outlined"
                 color="error"
                 onClick={handleLogout}
                 fullWidth
@@ -192,6 +208,12 @@ export default function Profile() {
           </Grid>
         </Box>
       </Paper>
+
+      {/* Manage Subcategories Dialog */}
+      <ManageSubcategories
+        open={manageSubcategoriesOpen}
+        onClose={() => setManageSubcategoriesOpen(false)}
+      />
     </Container>
   );
 }
