@@ -2,6 +2,8 @@ import React, { useState, useEffect, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { updateData, getData } from '../firebase/database';
+import { backupDatabaseToTelegram } from '../services/notificationService';
+import { realtimeDb } from '../firebase/config';
 import {
   Container,
   Paper,
@@ -17,8 +19,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  CircularProgress,
+  Snackbar,
 } from '@mui/material';
-import { PhotoCamera, Logout, Settings as SettingsIcon } from '@mui/icons-material';
+import { PhotoCamera, Logout, Settings as SettingsIcon, Backup as BackupIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import ManageSubcategories from '../components/ManageSubcategories';
 
@@ -37,6 +41,19 @@ export default function Profile() {
     telegramUserId: '',
   });
   const [manageSubcategoriesOpen, setManageSubcategoriesOpen] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupSuccess, setBackupSuccess] = useState('');
+  const [backupError, setBackupError] = useState('');
+
+  // Admin Telegram ID from environment variable
+  const ADMIN_TELEGRAM_ID = process.env.REACT_APP_ADMIN_CHAT_ID || '5297280058';
+  // Bot token with fallback (for private repo - restart dev server to use env variable)
+  const BOT_TOKEN = process.env.REACT_APP_TELEGRAM_BOT_TOKEN || '8282272675:AAHMNod-LLgMfMwa8ux2xCumAbN0x54El30';
+  // Get database URL directly from Firebase config (not from env which may point to wrong project)
+  const DATABASE_URL = realtimeDb.app.options.databaseURL;
+
+  // Check if current user is admin
+  const isAdmin = userData.telegramUserId === ADMIN_TELEGRAM_ID;
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -89,6 +106,33 @@ export default function Profile() {
     } catch (error) {
       setError('Failed to log out. Please try again.');
     }
+  };
+
+  // Handle database backup to Telegram (Admin only)
+  const handleBackupToTelegram = async () => {
+    if (!isAdmin) {
+      setBackupError('Only admin can perform backup');
+      return;
+    }
+
+    setBackupLoading(true);
+    setBackupError('');
+    setBackupSuccess('');
+
+    try {
+      await backupDatabaseToTelegram(
+        currentUser,
+        BOT_TOKEN,
+        ADMIN_TELEGRAM_ID,
+        DATABASE_URL
+      );
+      setBackupSuccess('✅ Database backup sent to your Telegram successfully!');
+    } catch (error) {
+      console.error('Backup error:', error);
+      setBackupError(`❌ Backup failed: ${error.message}`);
+    }
+
+    setBackupLoading(false);
   };
 
   return (
@@ -208,6 +252,36 @@ export default function Profile() {
           </Grid>
         </Box>
       </Paper>
+
+      {/* Admin Backup Section - Only visible to admin */}
+      {isAdmin && (
+        <Paper sx={{ p: { xs: 2, sm: 4 }, borderRadius: 4, boxShadow: 6, maxWidth: 480, mx: 'auto', mt: 2 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <BackupIcon color="primary" />
+            Admin: Database Backup
+          </Typography>
+          
+          {backupError && <Alert severity="error" sx={{ mb: 2 }}>{backupError}</Alert>}
+          {backupSuccess && <Alert severity="success" sx={{ mb: 2 }}>{backupSuccess}</Alert>}
+          
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Click the button below to backup the entire database and receive it as a JSON file on your Telegram.
+          </Typography>
+          
+          <Button
+            variant="contained"
+            color="secondary"
+            size="large"
+            fullWidth
+            startIcon={backupLoading ? <CircularProgress size={20} color="inherit" /> : <BackupIcon />}
+            onClick={handleBackupToTelegram}
+            disabled={backupLoading}
+            sx={{ borderRadius: 2, py: 1.5, fontWeight: 600 }}
+          >
+            {backupLoading ? 'Backing up...' : 'Backup to Telegram'}
+          </Button>
+        </Paper>
+      )}
 
       {/* Manage Subcategories Dialog */}
       <ManageSubcategories

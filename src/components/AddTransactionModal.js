@@ -23,10 +23,10 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { Close as CloseIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Save as SaveIcon, Cancel as CancelIcon } from '@mui/icons-material';
+import { Close as CloseIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Save as SaveIcon, Cancel as CancelIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { removeUndefined } from '../utils/cleanObject';
 import { useAuth } from '../contexts/AuthContext';
-import { saveCustomSubcategory, getCustomSubcategories, checkSubcategoryExists } from '../firebase/customSubcategories';
+import { saveCustomSubcategory, getCustomSubcategories, checkSubcategoryExists, deleteCustomSubcategory } from '../firebase/customSubcategories';
 
 const expenseCategories = {
   Milk: [],
@@ -75,6 +75,8 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
   const [otherTextError, setOtherTextError] = useState('');
   const [customSubcategories, setCustomSubcategories] = useState([]);
   const [loadingCustomSubcategories, setLoadingCustomSubcategories] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [subcategoryToDelete, setSubcategoryToDelete] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -223,37 +225,13 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
       console.log('=== PROCESSING OTHERS CATEGORY ===');
       
       // If "Other" is selected and there's text in the text box, use that as the subcategory
+      // BUT DO NOT create a new custom subcategory in Firebase - this is a one-time thing
       if (subCategory === 'Other' && otherTextValue.trim()) {
-        console.log('=== CREATING CUSTOM SUBCATEGORY FROM TEXT ===');
+        console.log('=== USING TEXT AS ONE-TIME SUBCATEGORY ===');
         finalSubCategory = otherTextValue.trim();
-        console.log('Text-based subcategory:', finalSubCategory);
-        
-        // Check if this custom subcategory already exists, if not, create it
-        if (currentUser) {
-          console.log('=== CHECKING IF SUBCATEGORY EXISTS ===');
-          const exists = await checkSubcategoryExists(currentUser.uid, 'Others', finalSubCategory);
-          console.log('Subcategory exists:', exists);
-          
-          if (!exists) {
-            console.log('=== CREATING NEW CUSTOM SUBCATEGORY ===');
-            try {
-              await saveCustomSubcategory(currentUser.uid, 'Others', finalSubCategory);
-              console.log('Custom subcategory saved to Firebase');
-              
-              // Add to local state
-              const newSubcategory = {
-                name: finalSubCategory,
-                createdAt: new Date().toISOString()
-              };
-              setCustomSubcategories(prev => [...prev, newSubcategory]);
-              console.log('Added to local state:', newSubcategory);
-            } catch (error) {
-              console.error('Error saving custom subcategory:', error);
-            }
-          } else {
-            console.log('=== SUBCATEGORY ALREADY EXISTS ===');
-          }
-        }
+        console.log('Text-based subcategory (one-time):', finalSubCategory);
+        // Note: We do NOT save this to Firebase as a custom subcategory
+        // This is meant to be a one-time thing that doesn't create new subcategories
       }
       // If a custom subcategory is already selected, use it as is
       else if (subCategory && subCategory !== 'Other') {
@@ -321,6 +299,42 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
     const num = parseFloat(value);
     if (isNaN(num)) return value;
     return num.toLocaleString('en-IN');
+  };
+
+  // Open delete confirmation dialog
+  const openDeleteConfirm = (subcategoryName) => {
+    setSubcategoryToDelete(subcategoryName);
+    setDeleteConfirmOpen(true);
+  };
+
+  // Handle confirmed delete
+  const handleConfirmDelete = async () => {
+    if (!currentUser || !category || !subcategoryToDelete) return;
+    
+    try {
+      await deleteCustomSubcategory(currentUser.uid, category, subcategoryToDelete);
+      // Remove from local state
+      setCustomSubcategories(prev => prev.filter(subcat => {
+        const name = typeof subcat === 'string' ? subcat : (subcat.name || Object.keys(subcat)[0]);
+        return name !== subcategoryToDelete;
+      }));
+      // Clear selection if deleted subcategory was selected
+      if (subCategory === subcategoryToDelete) {
+        setSubCategory('');
+      }
+      // Close dialog and reset
+      setDeleteConfirmOpen(false);
+      setSubcategoryToDelete(null);
+    } catch (error) {
+      console.error('Error deleting subcategory:', error);
+      setDeleteConfirmOpen(false);
+    }
+  };
+
+  // Cancel delete
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false);
+    setSubcategoryToDelete(null);
   };
 
   return (
@@ -497,12 +511,17 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
                         setOtherTextError('');
                       }
                     }}
+                    onDelete={() => openDeleteConfirm(subCatName)}
+                    deleteIcon={<DeleteIcon sx={{ fontSize: '1rem', opacity: 0.6, '&:hover': { opacity: 1, color: 'error.main' } }} />}
                     sx={{
-                      fontSize: '0.9rem',
+                      fontSize: '0.85rem',
                       fontWeight: subCategory === subCatName ? 'bold' : 'medium',
-                      px: 2,
-                      py: 1,
-                      backgroundColor: subCategory === subCatName ? 'primary.light' : 'grey.100'
+                      height: isMobile ? 32 : 28,
+                      backgroundColor: subCategory === subCatName ? 'primary.light' : 'grey.50',
+                      '& .MuiChip-deleteIcon': {
+                        marginLeft: '2px',
+                        marginRight: '-2px',
+                      }
                     }}
                   />
                 );
@@ -510,7 +529,7 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
               
               {/* Add Custom Subcategory Button - Always visible for Others */}
               <Chip
-                label="+ New Subcategory"
+                label="+"
                 variant="outlined"
                 color="primary"
                 size="medium"
@@ -696,19 +715,24 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
                     size="medium"
                     clickable
                     onClick={() => setSubCategory(subCatName)}
+                    onDelete={() => openDeleteConfirm(subCatName)}
+                    deleteIcon={<DeleteIcon sx={{ fontSize: '1rem', opacity: 0.6, '&:hover': { opacity: 1, color: 'error.main' } }} />}
                     sx={{
-                      fontSize: '0.9rem',
+                      fontSize: '0.85rem',
                       fontWeight: subCategory === subCatName ? 'bold' : 'medium',
-                      px: 2,
-                      py: 1,
-                      backgroundColor: subCategory === subCatName ? 'primary.light' : 'grey.100'
+                      height: isMobile ? 32 : 28,
+                      backgroundColor: subCategory === subCatName ? 'primary.light' : 'grey.50',
+                      '& .MuiChip-deleteIcon': {
+                        marginLeft: '2px',
+                        marginRight: '-2px',
+                      }
                     }}
                   />
                 );
               })}
               {/* Add Custom Subcategory Button - Always visible */}
               <Chip
-                label="+ New Subcategory"
+                label="+"
                 variant="outlined"
                 color="primary"
                 size="medium"
@@ -916,6 +940,77 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
           {initialData ? 'Update' : 'Save'}
         </Button>
       </DialogActions>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={handleCancelDelete}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            margin: isMobile ? 2 : 4,
+          },
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1,
+          pb: 1,
+          color: 'error.main'
+        }}>
+          <DeleteIcon color="error" />
+          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+            Delete Subcategory
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 1 }}>
+            Are you sure you want to delete this subcategory?
+          </Typography>
+          <Box sx={{ 
+            p: 1.5, 
+            bgcolor: 'grey.100', 
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'divider'
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'error.main' }}>
+              "{subcategoryToDelete}"
+            </Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button 
+            onClick={handleCancelDelete} 
+            color="inherit" 
+            variant="outlined" 
+            size="small" 
+            sx={{ textTransform: 'none', flex: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmDelete} 
+            variant="contained" 
+            color="error"
+            size="small"
+            startIcon={<DeleteIcon />}
+            sx={{ 
+              textTransform: 'none',
+              fontWeight: 'bold',
+              flex: 1
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };

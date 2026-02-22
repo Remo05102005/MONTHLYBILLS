@@ -118,9 +118,96 @@ export const sendTelegramMessage = async (botToken, chatId, message) => {
   }
 };
 
+/**
+ * Send a document/file to Telegram chat
+ * @param {string} botToken - Telegram bot token
+ * @param {string} chatId - Telegram chat ID
+ * @param {object} jsonData - JSON data to send as file
+ * @param {string} filename - Name of the file
+ * @param {string} caption - Optional caption for the file
+ */
+export const sendTelegramDocument = async (botToken, chatId, jsonData, filename = 'backup.json', caption = '') => {
+  try {
+    // Create a Blob from JSON data (raw, no modification)
+    const jsonString = JSON.stringify(jsonData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+
+    // Use FormData for file upload (multipart/form-data)
+    const formData = new FormData();
+    formData.append('chat_id', chatId);
+    formData.append('document', blob, filename);
+    if (caption) {
+      formData.append('caption', caption);
+    }
+
+    // Send directly to Telegram API
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: 'POST',
+      body: formData  // Don't set Content-Type header - browser sets it automatically with boundary
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Telegram API Error: ${error.description}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error sending Telegram document:', error);
+    throw error;
+  }
+};
+
+/**
+ * Backup entire Firebase database and send to Telegram
+ * @param {object} currentUser - Firebase current user object
+ * @param {string} botToken - Telegram bot token
+ * @param {string} chatId - Telegram chat ID to send backup to
+ * @param {string} databaseUrl - Firebase Realtime Database URL
+ */
+export const backupDatabaseToTelegram = async (currentUser, botToken, chatId, databaseUrl) => {
+  try {
+    // Get user's Firebase ID token for authentication
+    const idToken = await currentUser.getIdToken();
+
+    // Call Firebase REST API to get users data as raw JSON
+    // Reading from /users.json instead of /.json to match Firebase rules
+    const response = await fetch(
+      `${databaseUrl}/users.json?auth=${idToken}`
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Firebase response error:', response.status, errorText);
+      throw new Error(`Failed to fetch database (${response.status}): ${errorText}`);
+    }
+
+    // Get raw JSON - NO MODIFICATION
+    const rawJsonData = await response.json();
+
+    // Check if data exists
+    if (!rawJsonData) {
+      throw new Error('No data found in database');
+    }
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `firebase-backup-${timestamp}.json`;
+    const caption = `📦 Database Backup\n📅 ${new Date().toLocaleString()}\n💾 Full raw JSON export`;
+
+    // Send to Telegram
+    return await sendTelegramDocument(botToken, chatId, rawJsonData, filename, caption);
+  } catch (error) {
+    console.error('Error backing up database to Telegram:', error);
+    throw error;
+  }
+};
+
 export default {
   scheduleReminder,
   getDueReminders,
   deleteReminder,
-  sendTelegramMessage
+  sendTelegramMessage,
+  sendTelegramDocument,
+  backupDatabaseToTelegram
 };
