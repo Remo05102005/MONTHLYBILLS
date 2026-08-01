@@ -45,15 +45,20 @@ export default function Profile() {
   const [backupSuccess, setBackupSuccess] = useState('');
   const [backupError, setBackupError] = useState('');
 
-  // Admin Telegram ID from environment variable
-  const ADMIN_TELEGRAM_ID = process.env.REACT_APP_ADMIN_CHAT_ID || '5297280058';
-  // Bot token with fallback (for private repo - restart dev server to use env variable)
-  const BOT_TOKEN = process.env.REACT_APP_TELEGRAM_BOT_TOKEN || '8282272675:AAHMNod-LLgMfMwa8ux2xCumAbN0x54El30';
+  // Admin Telegram ID and bot token must come from environment variables only —
+  // no hardcoded fallback secret shipped in the bundle (and never commit real
+  // values into a tracked .env file).
+  const ADMIN_TELEGRAM_ID = process.env.REACT_APP_ADMIN_CHAT_ID || '';
+  const BOT_TOKEN = process.env.REACT_APP_TELEGRAM_BOT_TOKEN || '';
   // Get database URL directly from Firebase config (not from env which may point to wrong project)
   const DATABASE_URL = realtimeDb.app.options.databaseURL;
 
-  // Check if current user is admin
-  const isAdmin = userData.telegramUserId === ADMIN_TELEGRAM_ID;
+  // Check if current user is admin. NOTE: this is a client-side convenience
+  // gate only (userData.telegramUserId is a field the user can edit themselves)
+  // — it hides the button in the UI but does NOT stop a determined user from
+  // calling the backup path directly. Real enforcement must happen via
+  // Firebase Realtime Database security rules restricting reads of `/users`.
+  const isAdmin = !!ADMIN_TELEGRAM_ID && userData.telegramUserId === ADMIN_TELEGRAM_ID;
 
   useEffect(() => {
     const loadUserData = async () => {

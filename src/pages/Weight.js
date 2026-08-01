@@ -438,13 +438,16 @@ const Weight = () => {
         return;
       }
 
-      const latestWeight = weights[0];
-      
+      // Target the weight record currently being viewed (opened via "View Food"),
+      // not always the latest one — otherwise food added while viewing an older
+      // entry's list silently attaches to today's record instead.
+      const targetWeight = editingWeight || weights[0];
+
       if (editingFoodEntry) {
-        await updateFoodInWeightRecord(currentUser.uid, latestWeight.id, editingFoodEntry.id, foodData);
+        await updateFoodInWeightRecord(currentUser.uid, targetWeight.id, editingFoodEntry.id, foodData);
         setSuccess('Food entry updated successfully! 🍎');
       } else {
-        await addFoodToWeightRecord(currentUser.uid, latestWeight.id, foodData);
+        await addFoodToWeightRecord(currentUser.uid, targetWeight.id, foodData);
         setSuccess('Food entry added successfully! 🍎');
       }
       handleCloseFoodModal();
@@ -461,8 +464,8 @@ const Weight = () => {
         return;
       }
 
-      const latestWeight = weights[0];
-      await deleteFoodFromWeightRecord(currentUser.uid, latestWeight.id, foodEntryId);
+      const targetWeight = editingWeight || weights[0];
+      await deleteFoodFromWeightRecord(currentUser.uid, targetWeight.id, foodEntryId);
       setSuccess('Food entry deleted successfully! 🗑️');
     } catch (err) {
       console.error('Error deleting food intake:', err);

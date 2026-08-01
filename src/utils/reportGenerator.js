@@ -90,7 +90,11 @@ export const generateMonthlyReport = (transactions, month) => {
   const totalIncome = monthlyTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0);
   const totalExpense = monthlyTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0);
   const netSavings = totalIncome - totalExpense;
-  const savingsRate = totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
+  // With no income, any expense is a total loss (-100%), matching the in-app
+  // statistics calculation in Home.js rather than the misleading 0%.
+  const savingsRate = totalIncome > 0
+    ? (netSavings / totalIncome) * 100
+    : (totalExpense > 0 ? -100 : 0);
   
   // Detailed transaction analysis
   const incomeTransactions = monthlyTransactions.filter(t => t.type === 'income');
@@ -185,7 +189,7 @@ export const generateMonthlyReport = (transactions, month) => {
   let currentY = 30; // Simple header, start content earlier
   
   // Executive Summary Section
-  currentY = addSectionTitle('EXECUTIVE SUMMARY', currentY);
+  currentY = addSectionTitle(doc, 'EXECUTIVE SUMMARY', currentY);
   const avgExpenditure = totalExpense / daysInMonth.length;
   const summaryData = [
     ['Total Income', formatInt(totalIncome)],
@@ -227,7 +231,7 @@ export const generateMonthlyReport = (transactions, month) => {
   currentY = doc.lastAutoTable.finalY + 15;
   
   // Day-wise Transaction Details Table
-  currentY = addSectionTitle('DAILY TRANSACTION DETAILS', currentY);
+  currentY = addSectionTitle(doc, 'DAILY TRANSACTION DETAILS', currentY);
   
   // Prepare transaction data sorted by date
   const sortedTransactions = monthlyTransactions.sort((a, b) => {
@@ -379,7 +383,7 @@ export const generateMonthlyReport = (transactions, month) => {
   }
   
   // Daily Analysis Section
-  currentY = addSectionTitle('DAILY SPENDING PATTERNS', currentY);
+  currentY = addSectionTitle(doc, 'DAILY SPENDING PATTERNS', currentY);
   
   const dailyStats = [
     ['Days with Expenses', daysWithExpenses.toString(), `${((daysWithExpenses / daysInMonth.length) * 100).toFixed(1)}`],
@@ -423,7 +427,7 @@ export const generateMonthlyReport = (transactions, month) => {
   currentY = doc.lastAutoTable.finalY + 15;
   
   // Weekly Analysis
-  currentY = addSectionTitle('WEEKLY TREND ANALYSIS', currentY);
+  currentY = addSectionTitle(doc, 'WEEKLY TREND ANALYSIS', currentY);
   
   const weeklyData = Object.entries(weeklyExpenses).map(([week, expense]) => [
     week,
@@ -466,7 +470,7 @@ export const generateMonthlyReport = (transactions, month) => {
   currentY = doc.lastAutoTable.finalY + 15;
   
   // Day of Week Analysis
-  currentY = addSectionTitle('DAY OF WEEK ANALYSIS', currentY);
+  currentY = addSectionTitle(doc, 'DAY OF WEEK ANALYSIS', currentY);
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const dayOfWeekData = dayNames.map((day, index) => {
@@ -596,8 +600,7 @@ export const generateMonthlyReport = (transactions, month) => {
   return doc;
 };
 
-function addSectionTitle(title, y) {
-  const doc = new jsPDF();
+function addSectionTitle(doc, title, y) {
   const pageWidth = doc.internal.pageSize.width;
   const margin = 20;
   

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  createUserWithEmailAndPassword, 
+import { useDispatch } from 'react-redux';
+import {
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
@@ -8,6 +9,8 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import { resetTransactions } from '../store/transactionSlice';
+import { resetTodos } from '../store/todoSlice';
 
 const AuthContext = createContext();
 
@@ -18,6 +21,7 @@ export function useAuth() {
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const dispatch = useDispatch();
 
   function signup(email, password) {
     return createUserWithEmailAndPassword(auth, email, password);
@@ -43,10 +47,17 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
+      if (!user) {
+        // Clear any previously-loaded user's data so it can't linger on
+        // screen (or be briefly shown) if another account logs in next
+        // within the same session, before that account's own data loads.
+        dispatch(resetTransactions());
+        dispatch(resetTodos());
+      }
     });
 
     return unsubscribe;
-  }, []);
+  }, [dispatch]);
 
   const value = {
     currentUser,

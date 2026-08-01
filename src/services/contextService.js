@@ -1,4 +1,4 @@
-import { fetchTransactionsByDateRange, subscribeToTransactions } from '../firebase/transactions';
+import { fetchTransactionsByDateRange } from '../firebase/transactions';
 import { format } from 'date-fns';
 
 // Helper to compute date ranges for known timeline keywords
@@ -61,8 +61,15 @@ export async function getUserContextData(uid, options = {}) {
     transactionsObj = null;
   }
 
-  // Convert fetched object to array
-  const transactions = transactionsObj ? Object.values(transactionsObj) : [];
+  // fetchTransactionsByDateRange resolves whole month buckets touched by the
+  // range, so it can return transactions outside [start, end] (e.g. a custom
+  // range spanning only part of a month). Re-filter to the exact window.
+  const transactions = transactionsObj
+    ? Object.values(transactionsObj).filter(t => {
+        const d = new Date(t.date);
+        return d >= start && d <= end;
+      })
+    : [];
 
   // If query references weekdays like 'Mondays', filter by weekday
   const lowerQuery = (query || '').toLowerCase();

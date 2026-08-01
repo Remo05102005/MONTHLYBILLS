@@ -34,18 +34,27 @@ export const addTransactionToDB = async (uid, transaction) => {
  * @param {string} uid - User ID
  * @param {string} id - Transaction ID
  * @param {Object} transaction - Updated transaction data
+ * @param {string} [previousMonthYearPath] - Month/year path the record currently lives under,
+ *   used to migrate it if the (possibly edited) date now falls in a different month bucket.
  * @returns {Promise<void>}
  */
-export const updateTransactionInDB = async (uid, id, transaction) => {
+export const updateTransactionInDB = async (uid, id, transaction, previousMonthYearPath) => {
   try {
     const cleaned = removeUndefined(transaction);
     const monthYearPath = getMonthYearPath(cleaned.date);
     const db = getDatabase();
-    
-    // Update the transaction in the correct month/year path
+
+    // Write to the (possibly new) month/year path derived from the transaction's date
     const transactionRef = ref(db, `users/${uid}/transactions/${monthYearPath}/${id}`);
     await set(transactionRef, cleaned);
-    
+
+    // If the date moved the record into a different month bucket, remove the stale
+    // copy left behind at the old path so it doesn't linger as an orphaned duplicate.
+    if (previousMonthYearPath && previousMonthYearPath !== monthYearPath) {
+      const oldRef = ref(db, `users/${uid}/transactions/${previousMonthYearPath}/${id}`);
+      await remove(oldRef);
+    }
+
   } catch (error) {
     console.error('Error updating transaction:', error);
     throw error;

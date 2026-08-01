@@ -2,13 +2,37 @@ import { addData, updateData, deleteData, getData, queryData } from './database'
 import { set, ref } from 'firebase/database';
 import { realtimeDb } from './config';
 
+// Firebase Realtime Database keys can't contain '.', '#', '$', '[', ']', and
+// '/' is a path separator (it would silently create an extra nesting level).
+// Derive a safe, case-insensitive key from the display name so two entries
+// differing only by whitespace/casing/punctuation (e.g. "Milk" vs "milk",
+// or "Food/Drink") can't end up as separate, effectively-duplicate entries.
+// Each disallowed character maps to a distinct token so different inputs never
+// collapse onto the same key (e.g. "A.B" and "A#B" must stay distinct).
+const FORBIDDEN_KEY_CHARS = {
+  '.': '-dot-',
+  '#': '-hash-',
+  '$': '-dollar-',
+  '/': '-slash-',
+  '[': '-lb-',
+  ']': '-rb-',
+};
+
+const sanitizeSubcategoryKey = (subcategory) => {
+  return subcategory
+    .trim()
+    .toLowerCase()
+    .replace(/[.#$/[\]]/g, (ch) => FORBIDDEN_KEY_CHARS[ch]);
+};
+
 // Save a custom subcategory for a user
 export const saveCustomSubcategory = async (uid, category, subcategory) => {
   try {
-    const path = `users/${uid}/customSubcategories/${category}/${subcategory}`;
-    await set(ref(realtimeDb, path), { 
-      name: subcategory, 
-      createdAt: new Date().toISOString() 
+    const key = sanitizeSubcategoryKey(subcategory);
+    const path = `users/${uid}/customSubcategories/${category}/${key}`;
+    await set(ref(realtimeDb, path), {
+      name: subcategory.trim(),
+      createdAt: new Date().toISOString()
     });
     return true;
   } catch (error) {
@@ -89,8 +113,19 @@ export const getAllCustomSubcategories = async (uid) => {
 // Delete a custom subcategory
 export const deleteCustomSubcategory = async (uid, category, subcategory) => {
   try {
-    const path = `users/${uid}/customSubcategories/${category}/${subcategory}`;
+    const key = sanitizeSubcategoryKey(subcategory);
+    const path = `users/${uid}/customSubcategories/${category}/${key}`;
     await deleteData(path);
+
+    // Entries saved before key sanitization was introduced live under the raw
+    // (trimmed but not lowercased/escaped) name instead of the sanitized key.
+    // Clean that legacy path up too so renaming/deleting an old entry doesn't
+    // silently no-op and leave it stuck.
+    const legacyKey = subcategory.trim();
+    if (legacyKey && legacyKey !== key) {
+      const legacyPath = `users/${uid}/customSubcategories/${category}/${legacyKey}`;
+      await deleteData(legacyPath).catch(() => {});
+    }
     return true;
   } catch (error) {
     console.error('Error deleting custom subcategory:', error);

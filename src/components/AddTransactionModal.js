@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -53,7 +53,40 @@ const expenseCategories = {
 
 const incomeCategories = ['Salary', 'Others'];
 
-const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubcategoryAdded }) => {
+// Default date for a brand-new transaction: if the user is currently browsing
+// a past/future month, default into that month (clamped to a valid day) instead
+// of always defaulting to today — otherwise a transaction added while viewing
+// an old month silently lands in the current month's bucket.
+const getDefaultDateForMonth = (selectedMonth) => {
+  const today = new Date();
+  if (
+    !selectedMonth ||
+    (selectedMonth.getFullYear() === today.getFullYear() && selectedMonth.getMonth() === today.getMonth())
+  ) {
+    return today;
+  }
+  const lastDayOfSelectedMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).getDate();
+  const day = Math.min(today.getDate(), lastDayOfSelectedMonth);
+  return new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), day);
+};
+
+// Custom subcategories can come back from Firebase in a couple of shapes
+// (a plain string, { name: ... }, or a legacy { subcategoryName: true } map) —
+// normalize to the display name used for chip labels/matching.
+const getSubcategoryDisplayName = (subCat) => {
+  if (typeof subCat === 'string') {
+    return subCat;
+  }
+  if (typeof subCat === 'object' && subCat !== null) {
+    if (subCat.name) {
+      return subCat.name;
+    }
+    return Object.keys(subCat)[0] || String(subCat);
+  }
+  return String(subCat);
+};
+
+const AddTransactionModal = ({ open, onClose, onSave, initialData, selectedMonth, onCustomSubcategoryAdded }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { currentUser } = useAuth();
@@ -63,7 +96,6 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date());
-  const [otherCategory, setOtherCategory] = useState('');
   const [errors, setErrors] = useState({});
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customSubcategoryInput, setCustomSubcategoryInput] = useState('');
@@ -78,192 +110,184 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [subcategoryToDelete, setSubcategoryToDelete] = useState(null);
 
+  // For an "Others" transaction whose subcategory was saved as one-time free text
+  // (never persisted as a reusable custom subcategory), the raw text doesn't match
+  // the "Other" chip or any custom-subcategory chip, so nothing appears selected
+  // when reopening it for edit. This holds that raw text until the custom
+  // subcategory list has loaded and we can tell whether it's free text or a
+  // known custom subcategory (see the resolution effect below).
+  const pendingRawSubCategoryRef = useRef(null);
+  // Bumped every time the modal opens, so the custom-subcategory fetch effect
+  // below re-runs (and re-resolves pendingRawSubCategoryRef) even when the
+  // category is unchanged from the last time it was open — e.g. editing two
+  // different "Others" transactions back-to-back wouldn't otherwise trigger
+  // that effect a second time.
+  const [openSessionId, setOpenSessionId] = useState(0);
+
   useEffect(() => {
     if (open) {
+      setOpenSessionId(id => id + 1);
+      // These "Others"/custom-subcategory helper fields are local to a single
+      // in-progress edit and must not leak into the next time the modal opens
+      // (it stays mounted for the lifetime of the page — only `open` toggles).
+      setShowOtherTextBox(false);
+      setOtherTextValue('');
+      setOtherTextError('');
+      setShowCustomSubcategoryInput(false);
+      setCustomSubcategoryInput('');
+      setCustomSubcategoryError('');
+      setDeleteConfirmOpen(false);
+      setSubcategoryToDelete(null);
+
       if (initialData) {
         setTransactionType(initialData.type || 'expense');
         setCategory(initialData.category || '');
         setSubCategory(initialData.subCategory || '');
-        setAmount(initialData.amount ? String(initialData.amount) : '');
+        setAmount(initialData.amount != null ? String(initialData.amount) : '');
         setDescription(initialData.description || '');
         setDate(initialData.date ? new Date(initialData.date) : new Date());
-        setOtherCategory('');
         setErrors({});
         setShowAdvanced(!!initialData.description);
+        // Others' subcategory might be a one-time free-text value rather than a
+        // known custom subcategory — resolved once the fetch below tells us which.
+        pendingRawSubCategoryRef.current =
+          initialData.category === 'Others' && initialData.subCategory
+            ? initialData.subCategory
+            : null;
       } else {
         setTransactionType('expense');
         setCategory('');
         setSubCategory('');
         setAmount('');
         setDescription('');
-        setDate(new Date());
-        setOtherCategory('');
+        setDate(getDefaultDateForMonth(selectedMonth));
         setErrors({});
         setShowAdvanced(false);
+        pendingRawSubCategoryRef.current = null;
       }
     }
-  }, [open, initialData]);
+  }, [open, initialData, selectedMonth]);
 
   // Fetch custom subcategories when category changes
   useEffect(() => {
+    let cancelled = false;
     const fetchCustomSubcategories = async () => {
       if (category && currentUser) {
         setLoadingCustomSubcategories(true);
         try {
           const subcats = await getCustomSubcategories(currentUser.uid, category);
-          setCustomSubcategories(subcats || []);
+          if (!cancelled) {
+            setCustomSubcategories(subcats || []);
+            resolvePendingRawSubCategory(subcats || []);
+          }
         } catch (error) {
           console.error('Error fetching custom subcategories:', error);
-          setCustomSubcategories([]);
+          if (!cancelled) {
+            setCustomSubcategories([]);
+            resolvePendingRawSubCategory([]);
+          }
         } finally {
-          setLoadingCustomSubcategories(false);
+          if (!cancelled) setLoadingCustomSubcategories(false);
         }
       } else {
         setCustomSubcategories([]);
       }
     };
 
+    // If the subcategory being edited turns out not to be one of the fetched
+    // custom subcategories, it must be a one-time free-text "Other" value —
+    // switch the UI into the "Other" chip + text box so it's visible/editable
+    // instead of appearing blank because nothing matches it.
+    const resolvePendingRawSubCategory = (subcats) => {
+      const raw = pendingRawSubCategoryRef.current;
+      if (!raw || category !== 'Others') return;
+      pendingRawSubCategoryRef.current = null;
+      if (raw === 'Other') return;
+      const isKnownCustomSubcategory = subcats.some(sc => getSubcategoryDisplayName(sc) === raw);
+      if (!isKnownCustomSubcategory) {
+        setSubCategory('Other');
+        setShowOtherTextBox(true);
+        setOtherTextValue(raw);
+      }
+    };
+
     fetchCustomSubcategories();
-  }, [category, currentUser]);
+    // Ignore a stale response if the user switches categories again before it resolves.
+    return () => { cancelled = true; };
+  }, [category, currentUser, openSessionId]);
 
   const validateForm = () => {
-    console.log('=== VALIDATION FUNCTION START ===');
-    console.log('Input values:', { category, subCategory, otherCategory, otherTextValue, amount, customSubcategories: customSubcategories.length });
-    
     const newErrors = {};
-    
+
     // Check category
-    if (!category && !otherCategory) {
+    if (!category) {
       newErrors.category = 'Please select a category';
     }
-    
+
     // Check if category has subcategories and subcategory is required
     const hasPredefinedSubcategories = expenseCategories[category] && expenseCategories[category].length > 0;
     const hasCustomSubcategories = customSubcategories && customSubcategories.length > 0;
-    
-    console.log('Subcategory requirements:', { hasPredefinedSubcategories, hasCustomSubcategories, category, subCategory });
-    
+
     // For Others category, always require a subcategory (either custom or "Other" with text)
     if (category === 'Others') {
-      console.log('=== VALIDATING OTHERS CATEGORY ===');
       if (!subCategory) {
         newErrors.subCategory = 'Please select a subcategory';
-        console.log('Error: No subcategory selected');
       } else if (subCategory === 'Other' && !otherTextValue.trim()) {
         newErrors.subCategory = 'Please enter a description for "Other"';
-        console.log('Error: "Other" selected but no text provided');
-      } else {
-        console.log('Others category validation passed');
       }
     } else if ((hasPredefinedSubcategories || hasCustomSubcategories) && !subCategory) {
       newErrors.subCategory = 'Please select a subcategory';
-      console.log('Error: Subcategory required for this category');
     }
-    
-    // Additional check for "Other" subcategory text
-    if (category === 'Others' && subCategory === 'Other' && !otherTextValue.trim()) {
-      newErrors.subCategory = 'Please enter a description for "Other"';
-      console.log('Error: "Other" selected but no text provided (duplicate check)');
-    }
-    
-    // For Others category, only require otherCategory if using "Other" subcategory without text
-    // Custom subcategories (like "Auto") don't need additional category specification
-    if (category === 'Others' && !otherCategory && subCategory === 'Other' && !otherTextValue.trim()) {
-      newErrors.otherCategory = 'Please specify the category';
-      console.log('Error: Others category requires category specification when using "Other" subcategory without text');
-    }
-    
+
     // Check amount
     if (!amount) {
       newErrors.amount = 'Amount is required';
-      console.log('Error: Amount is required');
     } else if (isNaN(amount) || parseFloat(amount) < 0) {
       newErrors.amount = 'Please enter a valid amount (0 or greater)';
-      console.log('Error: Invalid amount');
     }
-    
-    console.log('Final errors:', newErrors);
+
     setErrors(newErrors);
     const isValid = Object.keys(newErrors).length === 0;
-    console.log('Validation result:', isValid);
-    console.log('=== VALIDATION FUNCTION END ===');
     return isValid;
   };
 
   const handleSave = async () => {
-    console.log('=== SAVE BUTTON CLICKED ===');
-    console.log('Current State:', {
-      transactionType,
-      category,
-      subCategory,
-      amount,
-      description,
-      date: date.toISOString(),
-      otherCategory,
-      otherTextValue,
-      showOtherTextBox,
-      customSubcategories: customSubcategories.length
-    });
-    
-    console.log('=== VALIDATION START ===');
     const isValid = validateForm();
-    console.log('Validation result:', isValid);
-    
     if (!isValid) {
-      console.log('=== VALIDATION FAILED ===');
-      console.log('Errors:', errors);
       return;
     }
-    
-    console.log('=== VALIDATION PASSED ===');
-    
+
     let finalSubCategory = subCategory;
-    console.log('Initial subCategory:', subCategory);
-    
+
     // Logic for Others category: create custom subcategory if needed
     if (category === 'Others') {
-      console.log('=== PROCESSING OTHERS CATEGORY ===');
-      
-      // If "Other" is selected and there's text in the text box, use that as the subcategory
-      // BUT DO NOT create a new custom subcategory in Firebase - this is a one-time thing
+      // If "Other" is selected and there's text in the text box, use that as the subcategory.
+      // This is a one-time value — it is NOT saved to Firebase as a reusable custom subcategory.
       if (subCategory === 'Other' && otherTextValue.trim()) {
-        console.log('=== USING TEXT AS ONE-TIME SUBCATEGORY ===');
         finalSubCategory = otherTextValue.trim();
-        console.log('Text-based subcategory (one-time):', finalSubCategory);
-        // Note: We do NOT save this to Firebase as a custom subcategory
-        // This is meant to be a one-time thing that doesn't create new subcategories
       }
       // If a custom subcategory is already selected, use it as is
       else if (subCategory && subCategory !== 'Other') {
-        console.log('=== USING EXISTING CUSTOM SUBCATEGORY ===');
         finalSubCategory = subCategory;
-        console.log('Selected subcategory:', finalSubCategory);
       }
       // If no subcategory is selected, set to undefined
       else {
-        console.log('=== NO SUBCATEGORY SELECTED ===');
         finalSubCategory = undefined;
       }
     }
-    
-    console.log('=== FINAL TRANSACTION DATA ===');
+
     const transaction = removeUndefined({
       id: initialData && initialData.id ? initialData.id : undefined,
       type: transactionType,
-      category: category === 'Others' ? (finalSubCategory || 'Others') : category,
-      subCategory: finalSubCategory ? undefined : undefined,
+      category: category,
+      subCategory: category === 'Others' ? finalSubCategory : (subCategory || undefined),
       amount: parseFloat(amount),
       description: description || undefined,
       date: date.toISOString(),
     });
-    
-    console.log('Transaction to save:', transaction);
-    console.log('=== SAVING TRANSACTION ===');
-    
+
     onSave(transaction);
     onClose();
-    
-    console.log('=== SAVE PROCESS COMPLETED ===');
   };
 
   const handleAmountChange = (event) => {
@@ -276,8 +300,7 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
   const handleCategorySelect = (cat) => {
     setCategory(cat);
     setSubCategory('');
-    setOtherCategory('');
-    setErrors(prev => ({ ...prev, category: '', subCategory: '', otherCategory: '' }));
+    setErrors(prev => ({ ...prev, category: '', subCategory: '' }));
     // Reset "Other" text state when category changes
     setShowOtherTextBox(false);
     setOtherTextValue('');
@@ -381,7 +404,6 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
               setTransactionType(newValue);
               setCategory('');
               setSubCategory('');
-              setOtherCategory('');
               setErrors({});
             }}
             centered
@@ -478,22 +500,8 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
               
               {/* Show custom subcategories for Others category */}
               {customSubcategories.map((subCat, index) => {
-                // Handle different data formats from Firebase
-                let subCatName;
-                if (typeof subCat === 'string') {
-                  subCatName = subCat;
-                } else if (typeof subCat === 'object' && subCat !== null) {
-                  if (subCat.name) {
-                    subCatName = subCat.name;
-                  } else {
-                    // If it's an object but doesn't have a name property,
-                    // it might be stored as { "subcategoryName": true } format
-                    subCatName = Object.keys(subCat)[0] || String(subCat);
-                  }
-                } else {
-                  subCatName = String(subCat);
-                }
-                
+                const subCatName = getSubcategoryDisplayName(subCat);
+
                 return (
                   <Chip
                     key={`${subCatName}-${index}`}
@@ -690,22 +698,8 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
               ))}
               {/* Show custom subcategories */}
               {customSubcategories.map((subCat, index) => {
-                // Handle different data formats from Firebase
-                let subCatName;
-                if (typeof subCat === 'string') {
-                  subCatName = subCat;
-                } else if (typeof subCat === 'object' && subCat !== null) {
-                  if (subCat.name) {
-                    subCatName = subCat.name;
-                  } else {
-                    // If it's an object but doesn't have a name property,
-                    // it might be stored as { "subcategoryName": true } format
-                    subCatName = Object.keys(subCat)[0] || String(subCat);
-                  }
-                } else {
-                  subCatName = String(subCat);
-                }
-                
+                const subCatName = getSubcategoryDisplayName(subCat);
+
                 return (
                   <Chip
                     key={`${subCatName}-${index}`}
@@ -872,6 +866,21 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
           />
         </Box>
 
+        {/* Transaction Date - always visible, since this determines which month
+            the transaction is stored under */}
+        <Box sx={{ mb: 2 }}>
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <DatePicker
+              label="Transaction Date"
+              value={date}
+              onChange={setDate}
+              renderInput={(params) => (
+                <TextField {...params} fullWidth size="small" error={!!errors.date} helperText={errors.date} />
+              )}
+            />
+          </LocalizationProvider>
+        </Box>
+
         {/* Advanced Options Toggle */}
         <Box sx={{ mb: 2 }}>
           <Button
@@ -908,17 +917,6 @@ const AddTransactionModal = ({ open, onClose, onSave, initialData, onCustomSubca
               size="small"
               sx={{ mb: 2 }}
             />
-
-            <LocalizationProvider dateAdapter={AdapterDateFns}>
-              <DatePicker
-                label="Transaction Date"
-                value={date}
-                onChange={setDate}
-                renderInput={(params) => (
-                  <TextField {...params} fullWidth size="small" />
-                )}
-              />
-            </LocalizationProvider>
           </Box>
         </Collapse>
       </DialogContent>

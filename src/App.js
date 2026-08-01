@@ -1,7 +1,9 @@
-import React, { useContext } from 'react';
+import React, { useContext, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 import { Provider } from 'react-redux';
 import { store } from './store/store';
 import { AuthProvider } from './contexts/AuthContext';
@@ -14,12 +16,17 @@ import { ThemeProvider, ThemeContext } from './contexts/ThemeContext';
 
 // Components
 import Layout from './components/Layout';
+// Home is the app's default landing route, so it's kept in the main bundle
+// (no lazy-loading flicker on first paint). Every other route is loaded on
+// demand — several of them (Weight in particular) statically pull in heavy
+// libraries like html2canvas/jsPDF that a Home-page visit should never have
+// to download.
 import Home from './pages/Home';
-import Profile from './pages/Profile';
-import SharedConversation from './pages/SharedConversation';
-import SubbaraoTimeline from './pages/SubbaraoTimeline';
-import TodoList from './pages/TodoList';
-import Weight from './pages/Weight';
+const Profile = lazy(() => import('./pages/Profile'));
+const SharedConversation = lazy(() => import('./pages/SharedConversation'));
+const SubbaraoTimeline = lazy(() => import('./pages/SubbaraoTimeline'));
+const TodoList = lazy(() => import('./pages/TodoList'));
+const Weight = lazy(() => import('./pages/Weight'));
 
 function AppContent() {
   const { mode } = useContext(ThemeContext);
@@ -82,11 +89,18 @@ function AppContent() {
     },
   }), [mode]);
 
+  const routeFallback = (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <CircularProgress />
+    </Box>
+  );
+
   return (
     <MuiThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
         <Router>
+          <Suspense fallback={routeFallback}>
           <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
@@ -166,6 +180,7 @@ function AppContent() {
               }
             />
           </Routes>
+          </Suspense>
         </Router>
       </AuthProvider>
     </MuiThemeProvider>

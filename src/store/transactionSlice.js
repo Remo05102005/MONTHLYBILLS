@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { addTransactionToDB, updateTransactionInDB, deleteTransactionFromDB, subscribeToTransactions, fetchTransactionsByDateRange, fetchAllTransactions } from '../firebase/transactions';
+import { addTransactionToDB, updateTransactionInDB, deleteTransactionFromDB, fetchTransactionsByDateRange, fetchAllTransactions } from '../firebase/transactions';
 import { auth } from '../firebase/config';
 
 const initialState = {
@@ -8,15 +8,24 @@ const initialState = {
   error: null
 };
 
+// Monotonic counter shared by every thunk that replaces the whole `transactions`
+// list. Each such thunk stamps its own request, and only applies its result if
+// no newer request has been issued since — otherwise a slow/out-of-order response
+// (e.g. from rapidly navigating between months) could overwrite fresher data.
+let latestReplaceRequestId = 0;
+
 export const fetchTransactions = createAsyncThunk(
   'transactions/fetchTransactions',
   async (_, { dispatch }) => {
     const uid = auth.currentUser.uid;
+    const requestId = ++latestReplaceRequestId;
     try {
       // Fetch all transactions using the new structure
       const transactions = await fetchAllTransactions(uid);
       const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
-      dispatch(setTransactions(txs));
+      if (requestId === latestReplaceRequestId) {
+        dispatch(setTransactions(txs));
+      }
       return txs;
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -29,16 +38,19 @@ export const fetchTransactionsForCurrentMonth = createAsyncThunk(
   'transactions/fetchTransactionsForCurrentMonth',
   async (_, { dispatch }) => {
     const uid = auth.currentUser.uid;
+    const requestId = ++latestReplaceRequestId;
     try {
       // Get current month range
       const now = new Date();
       const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      
+
       // Fetch transactions for current month
       const transactions = await fetchTransactionsByDateRange(uid, startDate, endDate);
       const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
-      dispatch(setTransactions(txs));
+      if (requestId === latestReplaceRequestId) {
+        dispatch(setTransactions(txs));
+      }
       return txs;
     } catch (error) {
       console.error('Error fetching transactions for current month:', error);
@@ -51,10 +63,13 @@ export const fetchTransactionsByMonth = createAsyncThunk(
   'transactions/fetchTransactionsByMonth',
   async ({ startDate, endDate }, { dispatch }) => {
     const uid = auth.currentUser.uid;
+    const requestId = ++latestReplaceRequestId;
     try {
       const transactions = await fetchTransactionsByDateRange(uid, startDate, endDate);
       const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
-      dispatch(setTransactions(txs));
+      if (requestId === latestReplaceRequestId) {
+        dispatch(setTransactions(txs));
+      }
       return txs;
     } catch (error) {
       console.error('Error fetching transactions by date range:', error);
@@ -65,56 +80,23 @@ export const fetchTransactionsByMonth = createAsyncThunk(
 
 export const addTransactionAsync = createAsyncThunk(
   'transactions/addTransactionAsync',
-  async (transaction, { dispatch, getState }) => {
+  async (transaction) => {
     const uid = auth.currentUser.uid;
-    try {
-      // Add transaction to Firebase
-      await addTransactionToDB(uid, transaction);
-      
-      // Get current state to determine which transactions to fetch
-      const currentState = getState();
-      const currentTransactions = currentState.transactions.transactions;
-      
-      // Determine if we need to fetch transactions for the current month
-      // Check if the new transaction's date falls within the currently displayed month
-      const newTransactionDate = new Date(transaction.date);
-      const currentMonth = new Date().getMonth();
-      const currentYear = new Date().getFullYear();
-      const transactionMonth = newTransactionDate.getMonth();
-      const transactionYear = newTransactionDate.getFullYear();
-      
-      // If the transaction is for the current month, refresh the current month's transactions
-      if (transactionMonth === currentMonth && transactionYear === currentYear) {
-        // Fetch transactions for current month to include the new transaction
-        const now = new Date();
-        const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        
-        const transactions = await fetchTransactionsByDateRange(uid, startDate, endDate);
-        const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
-        dispatch(setTransactions(txs));
-        return { transaction, updatedTransactions: txs };
-      } else {
-        // For transactions in other months, just add to the existing state
-        const updatedTransactions = [...currentTransactions, { 
-          ...transaction, 
-          id: transaction.id || Date.now().toString() // Ensure we have an ID
-        }];
-        dispatch(setTransactions(updatedTransactions));
-        return { transaction, updatedTransactions };
-      }
-    } catch (error) {
-      console.error('Error adding transaction:', error);
-      throw error;
-    }
+    // Write to Firebase and return the real push-id. Callers are responsible for
+    // re-fetching whichever month range they're currently displaying afterward
+    // (guessing "is this the currently viewed month" here caused stale/incorrect
+    // optimistic state, since it compared against today's real date rather than
+    // the month the user actually has selected).
+    const id = await addTransactionToDB(uid, transaction);
+    return { ...transaction, id };
   }
 );
 
 export const updateTransactionAsync = createAsyncThunk(
   'transactions/updateTransactionAsync',
-  async ({ id, transaction }) => {
+  async ({ id, transaction, previousMonthYearPath }) => {
     const uid = auth.currentUser.uid;
-    await updateTransactionInDB(uid, id, transaction);
+    await updateTransactionInDB(uid, id, transaction, previousMonthYearPath);
     return { id, transaction };
   }
 );
@@ -193,7 +175,7 @@ const transactionSlice = createSlice({
       })
       .addCase(addTransactionAsync.fulfilled, (state) => {
         state.loading = false;
-        // State is updated within the thunk itself based on the transaction date
+        // Caller re-fetches the currently viewed month's range after this resolves.
       })
       .addCase(addTransactionAsync.rejected, (state, action) => {
         state.loading = false;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getDatabase, ref, push, onValue } from 'firebase/database';
-import { realtimeDb } from '../firebase/config';
+import { ref, push, onValue } from 'firebase/database';
+import { realtimeDb, auth } from '../firebase/config';
 import Layout from '../components/Layout';
 import { sendTestMessage, getBotWebAppLink, GET_CHAT_ID_INSTRUCTIONS } from '../services/telegramService';
 
@@ -14,8 +14,12 @@ const Reminders = () => {
   const [testingConnection, setTestingConnection] = useState(false);
 
   useEffect(() => {
-    // Load existing reminders
-    const remindersRef = ref(realtimeDb, 'reminders');
+    if (!auth.currentUser) {
+      setReminders([]);
+      return;
+    }
+    // Load existing reminders for this user only
+    const remindersRef = ref(realtimeDb, `users/${auth.currentUser.uid}/reminders`);
     const unsubscribe = onValue(remindersRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -39,9 +43,14 @@ const Reminders = () => {
       return;
     }
 
+    if (!auth.currentUser) {
+      alert('You must be logged in to create a reminder');
+      return;
+    }
+
     setLoading(true);
     try {
-      const remindersRef = ref(realtimeDb, 'reminders');
+      const remindersRef = ref(realtimeDb, `users/${auth.currentUser.uid}/reminders`);
       await push(remindersRef, {
         telegram_chat_id: telegramChatId,
         message: message,
@@ -84,7 +93,7 @@ const Reminders = () => {
 
         {/* Telegram Setup */}
         <div className="bg-blue-50 p-6 rounded-lg shadow-md mb-8">
-          <h2 className="text-xl font-semibold mb-4">=€ Telegram Bot Setup</h2>
+          <h2 className="text-xl font-semibold mb-4">=ï¿½ Telegram Bot Setup</h2>
           <div className="mb-4">
             <p className="text-gray-700 mb-4">Follow these steps to set up your Telegram bot for reminders:</p>
             <div className="bg-white p-4 rounded border mb-4">

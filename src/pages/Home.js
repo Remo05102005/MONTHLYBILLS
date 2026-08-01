@@ -44,6 +44,7 @@ import {
   IconButton,
   Paper,
   Slider,
+  InputAdornment,
 } from '@mui/material';
 import {
   LineChart,
@@ -66,12 +67,15 @@ import {
   Share as ShareIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { addTransactionAsync, fetchTransactions, setTransactions, deleteTransactionAsync, updateTransactionAsync, fetchTransactionsForCurrentMonth, fetchTransactionsByMonth } from '../store/transactionSlice';
+import { addTransactionAsync, setTransactions, deleteTransactionAsync, updateTransactionAsync, fetchTransactionsByMonth } from '../store/transactionSlice';
 import { fetchTransactionsByDateRange, fetchTransactionsForMonth } from '../firebase/transactions';
+import { getMonthYearPath } from '../utils/transactionPathUtils';
 import { auth } from '../firebase/config';
-import { generateMonthlyReport } from '../utils/reportGenerator';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// jsPDF, jspdf-autotable, html2canvas, and the report/PDF generator utils are
+// all dynamically imported at their point of use below — they're only needed
+// when the user actually shares/downloads something, and are heavy enough
+// (~150KB+ combined) that shipping them in the main bundle on every page load
+// isn't worth it.
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
 import SubbaraoChat from '../components/AIAssistant';
@@ -81,11 +85,24 @@ import { useAuth } from '../contexts/AuthContext';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { generateCategoryAnalysisPDF } from '../utils/pdfGenerator';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
-import html2canvas from 'html2canvas';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
+
+// getMonthYearPath throws on a missing/invalid date. Callers here only use the
+// result as an optimization hint (the backend has its own fallback for a
+// missing month path), so a bad date should degrade to "let the backend figure
+// it out" rather than blocking the edit/delete entirely.
+const safeGetMonthYearPath = (date) => {
+  try {
+    return getMonthYearPath(date);
+  } catch (err) {
+    console.error('Could not determine month path for transaction date:', date, err);
+    return undefined;
+  }
+};
 
 const Home = () => {
   const theme = useTheme();
@@ -100,6 +117,7 @@ const Home = () => {
   const [success, setSuccess] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [searchQuery, setSearchQuery] = useState('');
   const [reportTransactions, setReportTransactions] = useState([]);
   const [openReportMonthDialog, setOpenReportMonthDialog] = useState(false);
   const [selectedReportMonth, setSelectedReportMonth] = useState(new Date());
@@ -124,8 +142,10 @@ const Home = () => {
 
   useEffect(() => {
     if (currentUser) {
-      dispatch(fetchTransactionsForCurrentMonth());
       dispatch(fetchTodos());
+      // Transaction data for the selected month is loaded by the effect below
+      // (it also runs on mount/login since `currentUser` is one of its deps) —
+      // dispatching a second, separate "current month" fetch here raced with it.
     } else {
       dispatch(setTransactions([]));
     }
@@ -137,7 +157,14 @@ const Home = () => {
     if (currentUser) {
       const startDate = startOfMonth(selectedMonth);
       const endDate = endOfMonth(selectedMonth);
-      dispatch(fetchTransactionsByMonth({ startDate, endDate }));
+      // A failed fetch here previously failed silently — the table would just
+      // stay empty with no indication anything went wrong. Surface it instead.
+      dispatch(fetchTransactionsByMonth({ startDate, endDate }))
+        .unwrap()
+        .catch((err) => {
+          console.error('Error fetching transactions for selected month:', err);
+          setError('Failed to load transactions for this month. Check your connection and try again.');
+        });
     }
     // eslint-disable-next-line
   }, [selectedMonth, currentUser]);
@@ -199,18 +226,24 @@ const Home = () => {
       const totalIncome = dailyTransactions.reduce((sum, day) => sum + day.income, 0);
       const totalExpenses = dailyTransactions.reduce((sum, day) => sum + day.expense, 0);
       const savings = totalIncome - totalExpenses;
-      const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0;
+      // With no income, any expense is a total loss (-100%) rather than the
+      // misleading 0% a plain "totalIncome > 0" guard would otherwise show.
+      const savingsRate = totalIncome > 0
+        ? (savings / totalIncome) * 100
+        : (totalExpenses > 0 ? -100 : 0);
 
       // Calculate daily statistics
       const daysWithExpenses = dailyTransactions.filter(day => day.expense > 0);
-      const minDailyExpense = daysWithExpenses.length > 0 
-        ? Math.min(...daysWithExpenses.map(day => day.expense)) 
+      const minDailyExpense = daysWithExpenses.length > 0
+        ? Math.min(...daysWithExpenses.map(day => day.expense))
         : 0;
-      const maxDailyExpense = daysWithExpenses.length > 0 
-        ? Math.max(...daysWithExpenses.map(day => day.expense)) 
+      const maxDailyExpense = daysWithExpenses.length > 0
+        ? Math.max(...daysWithExpenses.map(day => day.expense))
         : 0;
-      const avgDailyExpense = daysWithExpenses.length > 0 
-        ? totalExpenses / daysWithExpenses.length 
+      // Averaged over every day in the period (matching the "Per day" label),
+      // not just the days that happened to have an expense.
+      const avgDailyExpense = dailyTransactions.length > 0
+        ? totalExpenses / dailyTransactions.length
         : 0;
 
       // Calculate days with no transactions
@@ -425,26 +458,27 @@ const Home = () => {
 
   const handleSaveTransaction = async (transaction) => {
     try {
-      if (editTransaction && editTransaction.id) {
-        await dispatch(updateTransactionAsync({ id: editTransaction.id, transaction }));
+      const wasEditing = !!(editTransaction && editTransaction.id);
+      if (wasEditing) {
+        // Pass the month bucket the record currently lives under so the DB layer
+        // can move it (and clean up the old bucket) if the date was changed.
+        const previousMonthYearPath = safeGetMonthYearPath(editTransaction.date);
+        // .unwrap() rethrows on a rejected thunk so a backend failure is caught
+        // below instead of silently showing a false "success" message.
+        await dispatch(updateTransactionAsync({ id: editTransaction.id, transaction, previousMonthYearPath })).unwrap();
         setSuccess('Transaction updated successfully!');
       } else {
-        // For new transactions, ensure we refresh the current month's data
-        const result = await dispatch(addTransactionAsync(transaction));
-        if (result.payload) {
-          setSuccess('Transaction added successfully!');
-        } else {
-          throw new Error('Failed to add transaction');
-        }
+        await dispatch(addTransactionAsync(transaction)).unwrap();
+        setSuccess('Transaction added successfully!');
       }
       setIsAddModalOpen(false);
       setEditTransaction(null);
-      
-      // Force refresh of current month's transactions to ensure UI is up to date
-      if (!editTransaction || !editTransaction.id) {
-        // For new transactions, refresh the current month's data
-        dispatch(fetchTransactionsForCurrentMonth());
-      }
+
+      // Refresh the currently viewed month so the table reflects any move
+      // in/out of it (e.g. the transaction's date was changed to another month).
+      const startDate = startOfMonth(selectedMonth);
+      const endDate = endOfMonth(selectedMonth);
+      dispatch(fetchTransactionsByMonth({ startDate, endDate }));
     } catch (err) {
       console.error('Error saving transaction:', err);
       setError('Failed to save transaction. Please try again.');
@@ -454,8 +488,9 @@ const Home = () => {
   // Handle custom subcategory addition
   const handleCustomSubcategoryAdded = () => {
     setCustomSubcategoryAdded(true);
-    // Force refresh of current month's transactions to ensure new subcategories appear
-    dispatch(fetchTransactionsForCurrentMonth());
+    // Refresh the currently viewed month (not necessarily today's real month)
+    // so new subcategories appear without stomping the displayed data.
+    dispatch(fetchTransactionsByMonth({ startDate: startOfMonth(selectedMonth), endDate: endOfMonth(selectedMonth) }));
     // Reset the flag after a short delay
     setTimeout(() => setCustomSubcategoryAdded(false), 1000);
   };
@@ -762,6 +797,25 @@ const Home = () => {
     return Object.values(dateMap).sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [filteredTransactions]);
 
+  // Search filters which rows are shown, but must not change the cumulative-sum
+  // math above (that has to reflect the true running total for the month, not
+  // a running total of just the matching subset) — so filter the already-built
+  // groups instead of re-deriving them from a pre-filtered transaction list.
+  const displayedGroupedTransactions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return groupedTransactions;
+    return groupedTransactions
+      .map(group => ({
+        ...group,
+        transactions: group.transactions.filter(t =>
+          (t.description || '').toLowerCase().includes(q) ||
+          (t.category || '').toLowerCase().includes(q) ||
+          (t.subCategory || '').toLowerCase().includes(q)
+        ),
+      }))
+      .filter(group => group.transactions.length > 0);
+  }, [groupedTransactions, searchQuery]);
+
   const renderInsightContent = () => {
     switch (selectedInsight) {
       case 'category-breakdown':
@@ -826,7 +880,9 @@ const Home = () => {
           .filter(t => t.type === 'expense')
           .reduce((sum, t) => sum + Number(t.amount), 0);
         const savings = totalIncome - totalExpenses;
-        const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0;
+        const savingsRate = totalIncome > 0
+          ? (savings / totalIncome) * 100
+          : (totalExpenses > 0 ? -100 : 0);
 
         return (
           <Box sx={{ mt: 2 }}>
@@ -877,6 +933,9 @@ const Home = () => {
               const transactions = await fetchTransactionsByDateRange(auth.currentUser.uid, startDate, endDate);
               const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
               setReportTransactions(txs);
+              // Loaded on demand: jsPDF + jspdf-autotable pull ~150KB into whichever
+              // chunk imports them, and most page visits never generate a report.
+              const { generateMonthlyReport } = await import('../utils/reportGenerator');
               const doc = generateMonthlyReport(txs, selectedReportMonth);
               const fileName = `financial_monthly_report_${format(selectedReportMonth, 'yyyy-MM')}.pdf`;
               await handleShareReport(doc, fileName);
@@ -931,6 +990,7 @@ const Home = () => {
               const transactions = await fetchTransactionsByDateRange(auth.currentUser.uid, startDate, endDate);
               const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
               const periodLabel = format(selectedExpenditureMonth, 'MMMM yyyy');
+              const { generateCategoryAnalysisPDF } = await import('../utils/pdfGenerator');
               const doc = generateCategoryAnalysisPDF(txs, periodLabel);
               const fileName = `expense_category_analysis_${format(selectedExpenditureMonth, 'yyyy-MM')}.pdf`;
               await handleShareExpenditureList(doc, fileName);
@@ -953,6 +1013,7 @@ const Home = () => {
 
   const handleShare = async () => {
     if (!shareRef.current) return;
+    const { default: html2canvas } = await import('html2canvas');
     const canvas = await html2canvas(shareRef.current, { backgroundColor: null, useCORS: true });
     canvas.toBlob(async (blob) => {
       if (blob && navigator.clipboard) {
@@ -988,8 +1049,10 @@ const Home = () => {
     try {
       // Show loading state
       setSuccess('Generating PDF...');
-      
+
       // Create new PDF document
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
       const pageHeight = doc.internal.pageSize.height;
@@ -1241,6 +1304,7 @@ const Home = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Capture the graph as an image
+      const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(tempContainer, {
         backgroundColor: 'white',
         scale: 2, // Higher resolution
@@ -1501,10 +1565,32 @@ const Home = () => {
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           Financial Overview
         </Typography>
+        <TextField
+          fullWidth
+          size="small"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search this month's transactions by description or category..."
+          sx={{ mb: 2 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" color="action" />
+              </InputAdornment>
+            ),
+            endAdornment: searchQuery && (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => setSearchQuery('')} aria-label="Clear search">
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+        />
         {isMobile ? (
           // Mobile: Ultra-Advanced Premium Card/List layout
           <Box>
-            {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
+            {displayedGroupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
               <Box key={date} sx={{ 
                 mb: 2, 
                 borderRadius: 2.5, 
@@ -1837,7 +1923,7 @@ const Home = () => {
             ))}
             
             {/* No transactions overall */}
-            {groupedTransactions.length === 0 && (
+            {displayedGroupedTransactions.length === 0 && (
               <Box sx={{ 
                 textAlign: 'center', 
                 py: 6, 
@@ -1896,7 +1982,7 @@ const Home = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {groupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
+              {displayedGroupedTransactions.map(({ date, transactions, dayIncome, dayExpense }) => (
                 transactions.map((txn, idx) => (
                   <TableRow 
                     key={txn.id}
@@ -2048,6 +2134,7 @@ const Home = () => {
         onClose={() => { setIsAddModalOpen(false); setEditTransaction(null); }}
         onSave={handleSaveTransaction}
         initialData={editTransaction}
+        selectedMonth={selectedMonth}
         onCustomSubcategoryAdded={handleCustomSubcategoryAdded}
       />
 
@@ -2080,7 +2167,19 @@ const Home = () => {
           </Button>
           <Button onClick={async () => {
             if (transactionToDelete) {
-              await dispatch(deleteTransactionAsync({ id: transactionToDelete.id }));
+              try {
+                // Derive the month bucket from the transaction's own date so deletes work
+                // for any month. If the date can't be parsed, leave monthYearPath undefined
+                // so deleteTransactionFromDB falls back to its 12-month scan instead of
+                // blocking the delete entirely.
+                const monthYearPath = safeGetMonthYearPath(transactionToDelete.date);
+                await dispatch(deleteTransactionAsync({ id: transactionToDelete.id, monthYearPath })).unwrap();
+                dispatch(fetchTransactionsByMonth({ startDate: startOfMonth(selectedMonth), endDate: endOfMonth(selectedMonth) }));
+                setSuccess('Transaction deleted successfully!');
+              } catch (err) {
+                console.error('Error deleting transaction:', err);
+                setError('Failed to delete transaction. Please try again.');
+              }
             }
             setDeleteDialogOpen(false);
             setTransactionToDelete(null);

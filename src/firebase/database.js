@@ -5,10 +5,9 @@ import {
   update, 
   remove, 
   push, 
-  query, 
+  query,
   orderByChild,
-  onValue,
-  off
+  onValue
 } from 'firebase/database';
 import { realtimeDb } from './config';
 
@@ -76,13 +75,13 @@ export const addData = async (path, data) => {
 // Listen to real-time updates
 export const subscribeToData = (path, callback) => {
   const reference = ref(realtimeDb, path);
-  onValue(reference, (snapshot) => {
+  // onValue returns an unsubscribe function scoped to just this listener.
+  // Using off(reference) instead would detach every listener on this path,
+  // including ones registered by other subscribers.
+  return onValue(reference, (snapshot) => {
     const data = snapshot.exists() ? snapshot.val() : null;
     callback(data);
   });
-
-  // Return unsubscribe function
-  return () => off(reference);
 };
 
 // Query data with ordering
