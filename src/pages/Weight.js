@@ -74,6 +74,8 @@ import {
   saveTargetWeight,
   fetchGender,
   saveGender,
+  fetchJourneySettings,
+  saveJourneySettings,
   addFoodToWeightRecord,
   updateFoodInWeightRecord,
   deleteFoodFromWeightRecord,
@@ -84,6 +86,8 @@ import { generateWeightReport, generateWeightImage } from '../utils/pdfGenerator
 import FoodIntakeModal from '../components/FoodIntakeModal';
 import PdfPreviewDialog from '../components/PdfPreviewDialog';
 import FoodIntakeList from '../components/FoodIntakeList';
+import WeightJourney from '../components/WeightJourney';
+import { computeJourney, buildTrendMap, parseLocalDate } from '../utils/weightAnalytics';
 
 // BMI calculation functions
 const calculateBMI = (weight, height) => {
@@ -134,6 +138,7 @@ const Weight = () => {
   const [gender, setGender] = useState('male'); // 'male' or 'female'
   const [modalMode, setModalMode] = useState('add-weight'); // 'add-weight', 'set-height', 'set-target', or 'set-gender'
   const [confirmDeleteWeight, setConfirmDeleteWeight] = useState(null);
+  const [journeySettings, setJourneySettings] = useState({ startWeight: null, startDate: null, goalDate: null });
 
   // Food Intake State
   const [foodIntakeData, setFoodIntakeData] = useState([]);
@@ -153,6 +158,8 @@ const Weight = () => {
     height: '',
     targetWeight: '',
     gender: gender,
+    startWeight: '',
+    goalDate: '',
   });
 
   useEffect(() => {
@@ -166,7 +173,8 @@ const Weight = () => {
             let dateObj;
             if (weight.date) {
               // Try ISO string format first
-              dateObj = new Date(weight.date);
+              // Local-date parse so 'yyyy-MM-dd' doesn't shift a day across timezones
+              dateObj = parseLocalDate(weight.date);
               // If invalid date, try other formats
               if (isNaN(dateObj.getTime())) {
                 // Try YYYY-MM-DD format
@@ -242,6 +250,12 @@ const Weight = () => {
     loadTargetWeight();
   }, [currentUser]);
 
+  // Fetch journey settings (start weight, goal date)
+  useEffect(() => {
+    if (!currentUser) return;
+    fetchJourneySettings(currentUser.uid).then(setJourneySettings);
+  }, [currentUser]);
+
   // Fetch gender on component load
   useEffect(() => {
     const loadGender = async () => {
@@ -281,14 +295,21 @@ const Weight = () => {
         weight: weight.weight.toString(),
         height: height.toString(),
         gender: gender,
+        targetWeight: targetWeight ? targetWeight.toString() : '',
+        startWeight: '',
+        goalDate: '',
       });
     } else {
       setEditingWeight(null);
+      setModalMode('add-weight');
       setFormData({
         date: new Date(),
         weight: '',
         height: height.toString(),
         gender: gender,
+        targetWeight: targetWeight ? targetWeight.toString() : '',
+        startWeight: '',
+        goalDate: '',
       });
     }
     setIsAddModalOpen(true);
@@ -301,7 +322,46 @@ const Weight = () => {
       date: new Date(),
       weight: '',
       height: '',
+      targetWeight: '',
+      gender: gender,
+      startWeight: '',
+      goalDate: '',
     });
+  };
+
+  const handleOpenGoalSetup = () => {
+    setEditingWeight(null);
+    setModalMode('set-journey');
+    setFormData({
+      date: new Date(),
+      weight: '',
+      height: height.toString(),
+      gender,
+      targetWeight: targetWeight ? targetWeight.toString() : '',
+      startWeight: journey ? journey.startWeight.toString() : '',
+      goalDate: journeySettings.goalDate || '',
+    });
+    setIsAddModalOpen(true);
+  };
+
+  // One-tap logging for today (updates today's entry if it already exists)
+  const handleQuickLog = async (value) => {
+    try {
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const existing = weights.find((w) => format(w.date, 'yyyy-MM-dd') === todayStr);
+      const now = new Date().toISOString();
+      if (existing) {
+        await updateWeightInDB(currentUser.uid, existing.id, {
+          date: todayStr, weight: value, createdAt: existing.createdAt || now, updatedAt: now,
+        });
+      } else {
+        await addWeightToDB(currentUser.uid, { date: todayStr, weight: value, createdAt: now, updatedAt: now });
+      }
+      setSuccess("Today's weight logged! ⚖️");
+    } catch (err) {
+      console.error('Error quick logging weight:', err);
+      setError('Failed to save weight. Please try again.');
+    }
   };
 
   const handleSaveWeight = async () => {
@@ -348,6 +408,35 @@ const Weight = () => {
       return;
     }
 
+    if (modalMode === 'set-journey') {
+      const target = parseFloat(formData.targetWeight);
+      const start = formData.startWeight === '' ? null : parseFloat(formData.startWeight);
+      if (isNaN(target) || target <= 0) {
+        setError('Please enter a valid goal weight');
+        return;
+      }
+      if (start !== null && (isNaN(start) || start <= 0)) {
+        setError('Please enter a valid starting weight');
+        return;
+      }
+      try {
+        const goalDate = formData.goalDate || null;
+        await saveJourneySettings(currentUser.uid, {
+          targetWeight: target,
+          startWeight: start,
+          goalDate,
+        });
+        setTargetWeight(target);
+        setJourneySettings((s) => ({ ...s, startWeight: start, goalDate }));
+        setSuccess('Journey goal saved! 🎯');
+        handleCloseModal();
+      } catch (err) {
+        console.error('Error saving journey settings:', err);
+        setError('Failed to save goal. Please try again.');
+      }
+      return;
+    }
+
     if (modalMode === 'set-gender') {
       // Only save gender
       try {
@@ -382,7 +471,7 @@ const Weight = () => {
 
     try {
       const weightData = {
-        date: formData.date.toISOString().split('T')[0], // Store as YYYY-MM-DD
+        date: format(formData.date, 'yyyy-MM-dd'), // Local YYYY-MM-DD (toISOString would shift the day in UTC+ zones)
         weight: weightValue,
         createdAt: editingWeight ? editingWeight.createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -491,6 +580,7 @@ const Weight = () => {
   const chartData = useMemo(() => {
     const data = [];
     const today = new Date();
+    const trendMap = buildTrendMap([...weights].sort((a, b) => a.date - b.date));
 
     for (let i = selectedDays - 1; i >= 0; i--) {
       const date = new Date(today);
@@ -506,6 +596,7 @@ const Weight = () => {
         date: selectedDays > 60 ? format(date, 'MM/dd') : format(date, 'MMM dd'), // Shorter format for longer periods
         fullDate: dateStr,
         weight: weightEntry ? weightEntry.weight : null,
+        trend: trendMap[dateStr] ?? null,
       });
     }
 
@@ -609,6 +700,19 @@ const Weight = () => {
 
   const daysToTarget = calculateDaysToTarget();
 
+  // Journey analytics: use the custom goal, else the BMI-normal ceiling when overweight
+  const journeyTarget = targetWeight || (currentBMI && currentBMI >= 25 ? idealWeightRange.max : null);
+  const journey = useMemo(
+    () => computeJourney(weights, {
+      startWeight: journeySettings.startWeight,
+      startDate: journeySettings.startDate,
+      targetWeight: journeyTarget,
+      goalDate: journeySettings.goalDate,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [weights, journeySettings, journeyTarget]
+  );
+
   // Get available months from weight data
   const availableMonths = useMemo(() => {
     if (weights.length === 0) return [];
@@ -666,6 +770,11 @@ const Weight = () => {
           ) : (
             <Typography variant="body2" color="text.secondary">
               No data
+            </Typography>
+          )}
+          {data.trend != null && (
+            <Typography variant="body2" sx={{ color: '#ff7043' }}>
+              7-day avg: {data.trend} kg
             </Typography>
           )}
         </Box>
@@ -848,6 +957,22 @@ const Weight = () => {
 
       {/* Chart Section */}
       <Box sx={{ p: isMobile ? 2 : 3, pt: 3 }}>
+        <WeightJourney
+          journey={journey}
+          onQuickLog={handleQuickLog}
+          onEditGoal={handleOpenGoalSetup}
+        />
+        {!journey && !loading && (
+          <Card sx={{ mb: 3, borderRadius: 2 }}>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>🏁 Start your journey</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Set your goal weight and log your first weigh-in to unlock progress, pace and milestones.
+              </Typography>
+              <Button variant="contained" onClick={handleOpenGoalSetup}>Set my goal</Button>
+            </CardContent>
+          </Card>
+        )}
         <Card sx={{ mb: 3, borderRadius: 2 }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -1028,7 +1153,10 @@ const Weight = () => {
                     <YAxis
                       stroke={theme.palette.text.secondary}
                       fontSize={isMobile ? 10 : 12}
-                      domain={['dataMin - 2', 'dataMax + 2']}
+                      domain={([min, max]) => {
+                        const lo = journeyTarget ? Math.min(min, journeyTarget) : min;
+                        return [Math.floor(lo - 1), Math.ceil(max + 1)];
+                      }}
                       width={isMobile ? 40 : 60}
                       // Enhanced Y-axis styling
                       tick={{ fill: theme.palette.text.secondary, fontSize: isMobile ? 10 : 12 }}
@@ -1094,10 +1222,25 @@ const Weight = () => {
                       activeDot={{ r: isMobile ? 4 : 6, stroke: '#667eea', strokeWidth: isMobile ? 1 : 2 }}
                       connectNulls={true}
                     />
+                    <Line
+                      type="monotone"
+                      dataKey="trend"
+                      name="7-day trend"
+                      stroke="#ff7043"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      dot={false}
+                      activeDot={false}
+                      connectNulls={true}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </Box>
             )}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
+              <span style={{ color: '#667eea' }}>●</span> Daily weight &nbsp;
+              <span style={{ color: '#ff7043' }}>┅</span> 7-day average (the real trend)
+            </Typography>
 
             {/* BMI Categories Legend - Mobile optimized */}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 0.5 : 1, mt: 2, justifyContent: 'center' }}>
@@ -1627,6 +1770,11 @@ const Weight = () => {
                   label="📝 Add Weight Entry"
                 />
                 <FormControlLabel
+                  value="set-journey"
+                  control={<Radio />}
+                  label="🏁 Set Journey Goal (start, goal, date)"
+                />
+                <FormControlLabel
                   value="set-height"
                   control={<Radio />}
                   label="📏 Set Height"
@@ -1645,7 +1793,36 @@ const Weight = () => {
             </FormControl>
           )}
 
-          {modalMode === 'set-gender' ? (
+          {modalMode === 'set-journey' && !editingWeight ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <TextField
+                fullWidth
+                label="🎯 Goal Weight (kg)"
+                type="number"
+                value={formData.targetWeight}
+                onChange={(e) => setFormData({ ...formData, targetWeight: e.target.value })}
+                InputProps={{ inputProps: { min: 0, step: 0.1 } }}
+              />
+              <TextField
+                fullWidth
+                label="🚩 Starting Weight (kg)"
+                type="number"
+                value={formData.startWeight}
+                onChange={(e) => setFormData({ ...formData, startWeight: e.target.value })}
+                InputProps={{ inputProps: { min: 0, step: 0.1 } }}
+                helperText="Leave blank to use your first logged weight"
+              />
+              <TextField
+                fullWidth
+                label="📅 Goal Date (optional)"
+                type="date"
+                value={formData.goalDate}
+                onChange={(e) => setFormData({ ...formData, goalDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                helperText="Used to show the weekly pace you need to hit"
+              />
+            </Box>
+          ) : modalMode === 'set-gender' ? (
             <FormControl component="fieldset" sx={{ mt: 1 }}>
               <FormLabel component="legend" sx={{ fontWeight: 'bold', mb: 2 }}>
                 Select your gender
@@ -1735,6 +1912,8 @@ const Weight = () => {
             disabled={
               modalMode === 'add-weight' || editingWeight
                 ? (!formData.weight || !formData.date)
+                : modalMode === 'set-journey'
+                ? !formData.targetWeight
                 : modalMode === 'set-height'
                 ? !formData.height
                 : modalMode === 'set-target'
@@ -1746,6 +1925,8 @@ const Weight = () => {
           >
             {modalMode === 'add-weight' || editingWeight
               ? (editingWeight ? 'Update Weight' : 'Add Weight')
+              : modalMode === 'set-journey'
+              ? 'Save Goal'
               : modalMode === 'set-height'
               ? 'Set Height'
               : modalMode === 'set-target'
@@ -1918,7 +2099,10 @@ const Weight = () => {
                 <YAxis
                   stroke="#666"
                   fontSize={isMobile ? 12 : 14}
-                  domain={['dataMin - 2', 'dataMax + 2']}
+                  domain={([min, max]) => {
+                        const lo = journeyTarget ? Math.min(min, journeyTarget) : min;
+                        return [Math.floor(lo - 1), Math.ceil(max + 1)];
+                      }}
                   width={isMobile ? 60 : 80}
                   tick={{ fill: '#666', fontSize: isMobile ? 10 : 12 }}
                   tickLine={{ stroke: '#e0e0e0' }}

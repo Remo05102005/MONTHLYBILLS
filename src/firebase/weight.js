@@ -95,6 +95,38 @@ export const saveTargetWeight = async (uid, targetWeight) => {
   }
 };
 
+// Weight-loss journey settings: startWeight (kg), startDate / goalDate ('yyyy-MM-dd')
+export const fetchJourneySettings = async (uid) => {
+  try {
+    const snapshot = await get(ref(realtimeDb, `users/${uid}/settings`));
+    const s = snapshot.exists() ? snapshot.val() : {};
+    return {
+      startWeight: s.startWeight ?? null,
+      startDate: s.startDate ?? null,
+      goalDate: s.goalDate ?? null,
+    };
+  } catch (error) {
+    console.error('Error fetching journey settings:', error);
+    return { startWeight: null, startDate: null, goalDate: null };
+  }
+};
+
+// Pass null for a field to clear it
+export const saveJourneySettings = async (uid, { startWeight, startDate, goalDate, targetWeight }) => {
+  try {
+    const data = {};
+    if (startWeight !== undefined) data.startWeight = startWeight;
+    if (startDate !== undefined) data.startDate = startDate;
+    if (goalDate !== undefined) data.goalDate = goalDate;
+    if (targetWeight !== undefined) data.targetWeight = targetWeight;
+    await update(ref(realtimeDb, `users/${uid}/settings`), data);
+    return true;
+  } catch (error) {
+    console.error('Error saving journey settings:', error);
+    throw error;
+  }
+};
+
 export const fetchGender = async (uid) => {
   try {
     const genderRef = ref(realtimeDb, `users/${uid}/settings/gender`);
