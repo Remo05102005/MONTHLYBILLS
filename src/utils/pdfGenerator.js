@@ -6,7 +6,10 @@ import {
   parseISO,
   isValid,
   isDate,
-  getDay
+  getDay,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval
 } from 'date-fns';
 
 export const generatePDF = (data, type = 'monthly') => {
@@ -444,18 +447,22 @@ export const generatePDF = (data, type = 'monthly') => {
         }
       });
       
-      // Count occurrences of each day of week
-      uniqueDates.forEach(dateStr => {
-        try {
-          const dateObj = parseISO(dateStr);
-          if (isValid(dateObj)) {
-            const dayOfWeek = getDay(dateObj);
-            dayOfWeekCounts[dayOfWeek]++;
-          }
-        } catch (error) {
-          console.error('Error processing date for day count:', error);
+      // Count every calendar day in the period (not just days with
+      // transactions), stopping at today so future days don't dilute averages.
+      const parsedDates = Array.from(uniqueDates).map(d => parseISO(d)).filter(d => isValid(d));
+      if (parsedDates.length > 0) {
+        const minDate = new Date(Math.min(...parsedDates));
+        const maxDate = new Date(Math.max(...parsedDates));
+        const rangeStart = startOfMonth(minDate);
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const rangeEnd = new Date(Math.min(endOfMonth(maxDate), endOfToday));
+        if (rangeStart <= rangeEnd) {
+          eachDayOfInterval({ start: rangeStart, end: rangeEnd }).forEach(day => {
+            dayOfWeekCounts[getDay(day)]++;
+          });
         }
-      });
+      }
       
       // Sum expenses by day of week
       data.transactions.forEach(transaction => {
@@ -693,7 +700,7 @@ export const generatePDF = (data, type = 'monthly') => {
         `Most Expensive Category: ${mostExpensiveCategory} (${mostExpensiveAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
         `Day with Highest Expenses: ${highestExpenseDay} (${highestExpenseAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })})`,
         `Income to Expense Ratio: ${((data.statistics?.income || 0) / (data.statistics?.expenses || 1)).toFixed(2)}`,
-        `Daily Average Income: ${((data.statistics?.income || 0) / (data.statistics?.daysWithTransactions || 1)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+        `Daily Average Income: ${((data.statistics?.income || 0) / (data.statistics?.totalDays || data.statistics?.daysWithTransactions || 1)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
         `Daily Average Expense: ${correctedAvgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
       ];
       
@@ -800,11 +807,11 @@ export const generatePDF = (data, type = 'monthly') => {
           });
         }
         
-        // Calculate the average of daily totals
-        const dailyTotals = Object.values(transactionsByDate);
-        const correctedAvgDailyExpense = dailyTotals.length > 0 ? 
-          dailyTotals.reduce((sum, total) => sum + total, 0) / dailyTotals.length : 0;
-        const avgDailyExpense = correctedAvgDailyExpense;
+        // Average over days elapsed so far (same basis as the in-app stats),
+        // falling back to days with transactions if the total isn't provided.
+        const elapsedDaysCount = data.statistics?.totalDays || Object.keys(transactionsByDate).length;
+        const avgDailyExpense = elapsedDaysCount > 0 ? totalExpense / elapsedDaysCount : 0;
+        const dailyIncomeBudget = elapsedDaysCount > 0 ? totalIncome / elapsedDaysCount : 0;
         
         // Transaction analysis
         const incomeTransactions = data.transactions.filter(t => t.type === 'income');
@@ -838,7 +845,7 @@ export const generatePDF = (data, type = 'monthly') => {
           recommendations.push('Current spending exceeds income - immediate cost-cutting measures recommended');
         }
         
-        if (avgDailyExpense > totalIncome / 30 * 0.8) {
+        if (avgDailyExpense > dailyIncomeBudget * 0.8) {
           recommendations.push('Daily expenses are high relative to income - review discretionary spending');
         }
         
@@ -884,7 +891,7 @@ export const generatePDF = (data, type = 'monthly') => {
         const indicators = [
           ['Savings Rate', `${savingsRate.toFixed(1)}%`, savingsRate >= 20 ? 'Excellent' : savingsRate >= 10 ? 'Good' : 'Needs Improvement'],
           ['Expense to Income Ratio', `${((totalExpense / totalIncome) * 100).toFixed(1)}%`, (totalExpense / totalIncome) <= 0.8 ? 'Healthy' : 'High'],
-          ['Average Daily Expense', `${avgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, avgDailyExpense <= totalIncome / 30 * 0.7 ? 'Controlled' : 'High'],
+          ['Average Daily Expense', `${avgDailyExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, avgDailyExpense <= dailyIncomeBudget * 0.7 ? 'Controlled' : 'High'],
           ['Transaction Frequency', `${(totalTransactions / (data.statistics?.daysWithTransactions || 1)).toFixed(1)} per day`, 'Normal'],
           ['Average Expense Size', `${avgExpense.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],
           ['Average Income Size', `${avgIncome.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Per transaction'],

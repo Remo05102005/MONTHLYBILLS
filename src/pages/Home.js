@@ -78,6 +78,8 @@ import { auth } from '../firebase/config';
 // isn't worth it.
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, isWithinInterval, eachDayOfInterval } from 'date-fns';
 import AddTransactionModal from '../components/AddTransactionModal';
+import PdfPreviewDialog from '../components/PdfPreviewDialog';
+import ReportProgress from '../components/ReportProgress';
 import SubbaraoChat from '../components/AIAssistant';
 import AITestButton from '../components/AITestButton';
 import GenAITest from '../components/GenAITest';
@@ -115,6 +117,10 @@ const Home = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  // Generated report waiting in the preview: { doc, fileName, title, text }
+  const [pdfPreview, setPdfPreview] = useState(null);
+  // Progress of the monthly report build: { stage, done, total, label } or null
+  const [reportProgress, setReportProgress] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
@@ -240,14 +246,18 @@ const Home = () => {
       const maxDailyExpense = daysWithExpenses.length > 0
         ? Math.max(...daysWithExpenses.map(day => day.expense))
         : 0;
-      // Averaged over every day in the period (matching the "Per day" label),
-      // not just the days that happened to have an expense.
-      const avgDailyExpense = dailyTransactions.length > 0
-        ? totalExpenses / dailyTransactions.length
+      // Averaged over the days elapsed so far (up to today for the current
+      // month, the full month for past ones), not the whole month and not just
+      // the days that happened to have an expense.
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      const elapsedDays = dailyTransactions.filter(day => day.date <= today);
+      const avgDailyExpense = elapsedDays.length > 0
+        ? totalExpenses / elapsedDays.length
         : 0;
 
-      // Calculate days with no transactions
-      const daysWithNoTransactions = dailyTransactions.filter(day => day.transactions.length === 0).length;
+      // Calculate days with no transactions (only among elapsed days)
+      const daysWithNoTransactions = elapsedDays.filter(day => day.transactions.length === 0).length;
 
       return {
         income: totalIncome,
@@ -258,8 +268,8 @@ const Home = () => {
         maxDailyExpense,
         avgDailyExpense,
         daysWithNoTransactions,
-        totalDays: dailyTransactions.length,
-        daysWithTransactions: dailyTransactions.length - daysWithNoTransactions,
+        totalDays: elapsedDays.length,
+        daysWithTransactions: elapsedDays.length - daysWithNoTransactions,
       };
     } catch (err) {
       console.error('Error calculating statistics:', err);
@@ -378,82 +388,8 @@ const Home = () => {
     };
   }, [handleBackButton]);
 
-  const handleShareReport = async (reportData, fileName) => {
-    try {
-      // Check if Web Share API is available (mobile devices)
-      if (navigator.share && navigator.canShare) {
-        try {
-          // Convert PDF to blob for sharing
-          const pdfBlob = reportData.output('blob');
-          
-          // Create a File object for sharing
-          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-          
-          // Check if we can share this file
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: 'Financial Report',
-              text: `Financial report for ${format(selectedReportMonth, 'MMMM yyyy')}`,
-              files: [file]
-            });
-            
-            setSuccess('Report shared successfully! 📱');
-            return;
-          }
-        } catch (shareError) {
-          console.log('Web Share API failed, falling back to download:', shareError);
-        }
-      }
-
-      // Fallback to download if Web Share API is not available or fails
-      reportData.save(fileName);
-      setSuccess('Report downloaded successfully! 📱');
-      
-    } catch (err) {
-      console.error('Share error:', err);
-      setError(`Failed to share report: ${err.message}`);
-    }
-  };
-
   const handleGenerateExpenditureList = () => {
     setOpenExpenditureMonthDialog(true);
-  };
-
-  const handleShareExpenditureList = async (reportData, fileName) => {
-    try {
-      // Check if Web Share API is available (mobile devices)
-      if (navigator.share && navigator.canShare) {
-        try {
-          // Convert PDF to blob for sharing
-          const pdfBlob = reportData.output('blob');
-          
-          // Create a File object for sharing
-          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-          
-          // Check if we can share this file
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: 'Expenditure Analysis',
-              text: `Expenditure analysis for ${format(selectedExpenditureMonth, 'MMMM yyyy')}`,
-              files: [file]
-            });
-            
-            setSuccess('Expenditure list shared successfully! 📱');
-            return;
-          }
-        } catch (shareError) {
-          console.log('Web Share API failed, falling back to download:', shareError);
-        }
-      }
-
-      // Fallback to download if Web Share API is not available or fails
-      reportData.save(fileName);
-      setSuccess('Expenditure list downloaded successfully! 📱');
-      
-    } catch (err) {
-      console.error('Share error:', err);
-      setError(`Failed to share expenditure list: ${err.message}`);
-    }
   };
 
   const handleSaveTransaction = async (transaction) => {
@@ -901,9 +837,10 @@ const Home = () => {
 
   // Add ReportMonthDialog component
   const ReportMonthDialog = ({ open, onClose }) => (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Select Month for Report</DialogTitle>
+    <Dialog open={open} onClose={reportProgress ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>{reportProgress ? 'Creating Report' : 'Select Month for Report'}</DialogTitle>
       <DialogContent>
+        {reportProgress ? <ReportProgress progress={reportProgress} /> : (
         <LocalizationProvider dateAdapter={AdapterDateFns}>
           <DatePicker
             views={["year", "month"]}
@@ -921,38 +858,74 @@ const Home = () => {
             )}
           />
         </LocalizationProvider>
+        )}
       </DialogContent>
+      {!reportProgress && (
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button 
+        <Button
           onClick={async () => {
+            const pause = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            const MONTHS = 12;
             try {
               setLoading(true);
-              const startDate = startOfMonth(selectedReportMonth);
-              const endDate = endOfMonth(selectedReportMonth);
-              const transactions = await fetchTransactionsByDateRange(auth.currentUser.uid, startDate, endDate);
-              const txs = transactions ? Object.entries(transactions).map(([id, t]) => ({ id, ...t })) : [];
-              setReportTransactions(txs);
+              const selectedStart = startOfMonth(selectedReportMonth);
+              const toList = (obj) => (obj ? Object.entries(obj).map(([id, t]) => ({ id, ...t })) : []);
+
               // Loaded on demand: jsPDF + jspdf-autotable pull ~150KB into whichever
               // chunk imports them, and most page visits never generate a report.
-              const { generateMonthlyReport } = await import('../utils/reportGenerator');
-              const doc = generateMonthlyReport(txs, selectedReportMonth);
+              const modulePromise = import('../utils/reportGenerator');
+
+              // Data is stored per month, so the last 12 months are read one
+              // month at a time (oldest first) while the progress bar fills.
+              let txs = [];
+              const history = [];
+              for (let i = 0; i < MONTHS; i++) {
+                const monthStart = new Date(selectedStart.getFullYear(), selectedStart.getMonth() - (MONTHS - 1 - i), 1);
+                setReportProgress({ stage: 'fetch', done: i, total: MONTHS, label: format(monthStart, 'MMMM yyyy') });
+                const isSelected = i === MONTHS - 1;
+                try {
+                  const data = await fetchTransactionsByDateRange(auth.currentUser.uid, monthStart, endOfMonth(monthStart));
+                  const list = toList(data);
+                  if (isSelected) txs = list; else history.push(...list);
+                } catch (monthErr) {
+                  // Older months are a bonus; only the selected month must load.
+                  if (isSelected) throw monthErr;
+                  console.warn(`Could not load ${format(monthStart, 'MMM yyyy')} for the report:`, monthErr);
+                }
+              }
+              setReportTransactions(txs);
+
+              setReportProgress({ stage: 'build', done: MONTHS, total: MONTHS, label: '' });
+              const { generateMonthlyReport } = await modulePromise;
+              await pause(350); // let the "drawing" state paint before the heavy work
+              const doc = generateMonthlyReport(txs, selectedReportMonth, history);
               const fileName = `financial_monthly_report_${format(selectedReportMonth, 'yyyy-MM')}.pdf`;
-              await handleShareReport(doc, fileName);
+
+              setReportProgress({ stage: 'done', done: MONTHS, total: MONTHS, label: '' });
+              await pause(700);
+              setPdfPreview({
+                doc,
+                fileName,
+                title: `Monthly Report - ${format(selectedReportMonth, 'MMMM yyyy')}`,
+                text: `Financial report for ${format(selectedReportMonth, 'MMMM yyyy')}`,
+              });
               onClose();
             } catch (err) {
               console.error('Error generating report:', err);
               setError(`Failed to generate report: ${err.message}`);
             } finally {
+              setReportProgress(null);
               setLoading(false);
             }
-          }} 
-          color="primary" 
+          }}
+          color="primary"
           variant="contained"
         >
-          Generate & Share Report
+          Generate & Preview Report
         </Button>
       </DialogActions>
+      )}
     </Dialog>
   );
 
@@ -993,7 +966,12 @@ const Home = () => {
               const { generateCategoryAnalysisPDF } = await import('../utils/pdfGenerator');
               const doc = generateCategoryAnalysisPDF(txs, periodLabel);
               const fileName = `expense_category_analysis_${format(selectedExpenditureMonth, 'yyyy-MM')}.pdf`;
-              await handleShareExpenditureList(doc, fileName);
+              setPdfPreview({
+                doc,
+                fileName,
+                title: `Expenditure Analysis - ${periodLabel}`,
+                text: `Expenditure analysis for ${periodLabel}`,
+              });
               onClose();
             } catch (err) {
               console.error('Error generating expenditure list:', err);
@@ -1005,7 +983,7 @@ const Home = () => {
           color="primary" 
           variant="contained"
         >
-          Generate & Share Expenditure List
+          Generate & Preview Expenditure List
         </Button>
       </DialogActions>
     </Dialog>
@@ -1234,38 +1212,16 @@ const Home = () => {
         doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 20, pageHeight - 5, { align: 'right' });
       }
       
-      // Check if Web Share API is available (mobile devices)
-      if (navigator.share && navigator.canShare) {
-        try {
-          // Convert PDF to blob for sharing
-          const pdfBlob = doc.output('blob');
-          const fileName = `day-summary-${selectedDay.date ? format(new Date(selectedDay.date), 'yyyy-MM-dd') : 'unknown'}.pdf`;
-          
-          // Create a File object for sharing
-          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-          
-          // Check if we can share this file
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: 'Daily Transaction Summary',
-              text: `Daily transaction summary for ${dateStr}`,
-              files: [file]
-            });
-            
-            setSuccess('Day summary shared successfully! 📱');
-            return;
-          }
-        } catch (shareError) {
-          console.log('Web Share API failed, falling back to download:', shareError);
-        }
-      }
-
-      // Fallback to download if Web Share API is not available or fails
+      // Show the summary in the preview; download/share happens from there
       const fileName = `day-summary-${selectedDay.date ? format(new Date(selectedDay.date), 'yyyy-MM-dd') : 'unknown'}.pdf`;
-      doc.save(fileName);
-      
-      setSuccess('Day summary PDF downloaded successfully! 📱');
-      
+      setSuccess(null);
+      setPdfPreview({
+        doc,
+        fileName,
+        title: `Day Summary - ${dateStr}`,
+        text: `Daily transaction summary for ${dateStr}`,
+      });
+
     } catch (err) {
       console.error('PDF generation error:', err);
       setError(`Failed to generate PDF: ${err.message}`);
@@ -2190,9 +2146,22 @@ const Home = () => {
       </Dialog>
 
       {/* Add the ReportMonthDialog to the JSX */}
-      <ReportMonthDialog
-        open={openReportMonthDialog}
-        onClose={() => setOpenReportMonthDialog(false)}
+      {/* Called as a function (it is declared inside Home) so progress updates
+          re-render it in place instead of remounting and restarting the animation. */}
+      {ReportMonthDialog({
+        open: openReportMonthDialog,
+        onClose: () => setOpenReportMonthDialog(false),
+      })}
+
+      {/* Preview any generated PDF before it is downloaded or shared */}
+      <PdfPreviewDialog
+        doc={pdfPreview?.doc}
+        fileName={pdfPreview?.fileName}
+        title={pdfPreview?.title}
+        shareText={pdfPreview?.text}
+        onClose={() => setPdfPreview(null)}
+        onDone={(msg) => setSuccess(msg)}
+        onError={(msg) => setError(msg)}
       />
 
       {/* Add the ExpenditureMonthDialog to the JSX */}

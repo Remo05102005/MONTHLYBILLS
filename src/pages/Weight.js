@@ -82,6 +82,7 @@ import {
 import { addFoodIntakeToDB, updateFoodIntakeInDB, deleteFoodIntakeFromDB, subscribeToFoodIntake } from '../firebase/food';
 import { generateWeightReport, generateWeightImage } from '../utils/pdfGenerator';
 import FoodIntakeModal from '../components/FoodIntakeModal';
+import PdfPreviewDialog from '../components/PdfPreviewDialog';
 import FoodIntakeList from '../components/FoodIntakeList';
 
 // BMI calculation functions
@@ -125,6 +126,8 @@ const Weight = () => {
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [shareMenuAnchor, setShareMenuAnchor] = useState(null);
   const [success, setSuccess] = useState(null);
+  // Generated weight report waiting in the preview: { doc, fileName }
+  const [pdfPreview, setPdfPreview] = useState(null);
   const [error, setError] = useState(null);
   const [height, setHeight] = useState(170); // height in cm
   const [targetWeight, setTargetWeight] = useState(null); // custom target weight, null means use BMI normal range
@@ -669,55 +672,6 @@ const Weight = () => {
       );
     }
     return null;
-  };
-
-  // Enhanced share functionality with better error handling and user feedback
-  const handleShareReport = async (reportData, fileName) => {
-    try {
-      setIsSharing(true);
-      setShareProgress('Preparing PDF...');
-
-      // Check if Web Share API is available (mobile devices)
-      if (navigator.share && navigator.canShare) {
-        try {
-          setShareProgress('Converting to shareable format...');
-          
-          // Convert PDF to blob for sharing
-          const pdfBlob = reportData.output('blob');
-
-          // Create a File object for sharing
-          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-
-          // Check if we can share this file
-          if (navigator.canShare({ files: [file] })) {
-            setShareProgress('Sharing via Web Share API...');
-            await navigator.share({
-              title: 'Weight Tracker Report',
-              text: 'Check out my weight progress report!',
-              files: [file]
-            });
-
-            setSuccess('Report shared successfully! 📱');
-            return;
-          }
-        } catch (shareError) {
-          console.log('Web Share API failed, falling back to download:', shareError);
-          setShareProgress('Web Share API not available, downloading instead...');
-        }
-      }
-
-      // Fallback to download if Web Share API is not available or fails
-      setShareProgress('Downloading PDF...');
-      reportData.save(fileName);
-      setSuccess('Report downloaded successfully! 📱');
-
-    } catch (err) {
-      console.error('Share error:', err);
-      setError(`Failed to share report: ${err.message}`);
-    } finally {
-      setIsSharing(false);
-      setShareProgress('');
-    }
   };
 
   // Enhanced image sharing with better error handling and user feedback
@@ -2075,7 +2029,7 @@ const Weight = () => {
               const chartContainer = document.querySelector('.recharts-wrapper');
               const doc = await generateWeightReport(weights, selectedDays, idealWeightRange.min, chartContainer ? { current: chartContainer } : null);
               const fileName = `weight_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
-              await handleShareReport(doc, fileName);
+              setPdfPreview({ doc, fileName });
             } catch (error) {
               console.error('Error generating PDF:', error);
               setError('Failed to generate PDF report. Please try again.');
@@ -2087,7 +2041,7 @@ const Weight = () => {
             <PdfIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText 
-            primary="Share PDF" 
+            primary="Preview PDF" 
             secondary={isSharing && shareProgress.includes('PDF') ? shareProgress : ''}
           />
           {isSharing && shareProgress.includes('PDF') && (
@@ -2177,6 +2131,17 @@ const Weight = () => {
       </Dialog>
 
       {/* Success/Error Snackbars */}
+      {/* Preview the weight report before it is downloaded or shared */}
+      <PdfPreviewDialog
+        doc={pdfPreview?.doc}
+        fileName={pdfPreview?.fileName}
+        title="Weight Tracker Report"
+        shareText="Check out my weight progress report!"
+        onClose={() => setPdfPreview(null)}
+        onDone={(msg) => setSuccess(msg)}
+        onError={(msg) => setError(msg)}
+      />
+
       <Snackbar
         open={!!success}
         autoHideDuration={6000}
