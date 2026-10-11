@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -14,6 +14,73 @@ import {
 import DownloadIcon from '@mui/icons-material/Download';
 import ShareIcon from '@mui/icons-material/Share';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+
+// Mobile Chrome cannot show a PDF inside an iframe (it only offers "Open"),
+// so pages are rasterised to canvases with pdf.js instead.
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.js',
+  import.meta.url
+).toString();
+
+const PdfPages = ({ blob, onFail }) => {
+  const containerRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pdf = null;
+    const container = containerRef.current;
+    setLoading(true);
+    (async () => {
+      try {
+        const data = new Uint8Array(await blob.arrayBuffer());
+        pdf = await pdfjsLib.getDocument({ data }).promise;
+        const width = Math.max(container.clientWidth - 16, 200);
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        container.innerHTML = '';
+        for (let i = 1; i <= pdf.numPages; i += 1) {
+          if (cancelled) return;
+          const page = await pdf.getPage(i);
+          const base = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: (width / base.width) * ratio });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${viewport.height / ratio}px`;
+          canvas.style.display = 'block';
+          canvas.style.margin = '8px auto';
+          canvas.style.boxShadow = '0 1px 4px rgba(0,0,0,0.3)';
+          canvas.style.background = '#fff';
+          container.appendChild(canvas);
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          if (i === 1) setLoading(false);
+        }
+        setLoading(false);
+      } catch (err) {
+        console.error('PDF render failed:', err);
+        if (!cancelled) onFail(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (pdf) pdf.destroy();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blob]);
+
+  return (
+    <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', bgcolor: 'grey.300', position: 'relative' }}>
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+      <div ref={containerRef} />
+    </Box>
+  );
+};
 
 /**
  * Shows a generated jsPDF document before it leaves the app. The user can
@@ -32,6 +99,7 @@ const PdfPreviewDialog = ({ doc, fileName, title = 'Report preview', shareText =
   const [blob, setBlob] = useState(null);
   const [url, setUrl] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [renderFailed, setRenderFailed] = useState(false);
   // Phones get a full-screen preview so the pages are readable.
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -39,6 +107,7 @@ const PdfPreviewDialog = ({ doc, fileName, title = 'Report preview', shareText =
   // Build the blob + object URL whenever a new document arrives, and release
   // it when the preview closes or the document changes.
   useEffect(() => {
+    setRenderFailed(false);
     if (!doc) {
       setBlob(null);
       setUrl(null);
@@ -115,7 +184,9 @@ const PdfPreviewDialog = ({ doc, fileName, title = 'Report preview', shareText =
         </Typography>
       </DialogTitle>
       <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column' }}>
-        {url ? (
+        {url && blob && !renderFailed ? (
+          <PdfPages blob={blob} onFail={() => setRenderFailed(true)} />
+        ) : url ? (
           <Box
             component="iframe"
             title={title}
