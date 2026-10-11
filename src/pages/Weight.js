@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -37,8 +37,11 @@ import {
   Select,
   FormControl as MuiFormControl,
   InputLabel,
-  Drawer,
   CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -49,45 +52,38 @@ import {
   Share as ShareIcon,
   PictureAsPdf as PdfIcon,
   Image as ImageIcon,
-  Restaurant as RestaurantIcon,
-  Fullscreen as FullscreenIcon,
-  FullscreenExit as FullscreenExitIcon,
-  ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { format, isSameDay, parseISO, isAfter, startOfDay, subDays } from 'date-fns';
-import html2canvas from 'html2canvas';
+import { format, isAfter, startOfDay } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   addWeightToDB, 
   updateWeightInDB, 
   deleteWeightFromDB, 
   subscribeToWeights,
-  fetchLast30DaysWeights,
   fetchHeight,
   saveHeight,
   fetchTargetWeight,
-  saveTargetWeight,
   fetchGender,
   saveGender,
   fetchJourneySettings,
   saveJourneySettings,
-  addFoodToWeightRecord,
-  updateFoodInWeightRecord,
-  deleteFoodFromWeightRecord,
-  subscribeToFoodInWeightRecord
+  subscribeToMeasurements,
+  subscribeToDaily,
 } from '../firebase/weight';
-import { addFoodIntakeToDB, updateFoodIntakeInDB, deleteFoodIntakeFromDB, subscribeToFoodIntake } from '../firebase/food';
-import { generateWeightReport, generateWeightImage } from '../utils/pdfGenerator';
-import FoodIntakeModal from '../components/FoodIntakeModal';
 import PdfPreviewDialog from '../components/PdfPreviewDialog';
-import FoodIntakeList from '../components/FoodIntakeList';
 import WeightJourney from '../components/WeightJourney';
-import { computeJourney, buildTrendMap, parseLocalDate } from '../utils/weightAnalytics';
+import WeightMeasurements from '../components/WeightMeasurements';
+import WeightBadges from '../components/WeightBadges';
+import WeightWhatIf from '../components/WeightWhatIf';
+import WeightHabits from '../components/WeightHabits';
+import WeightCoach from '../components/WeightCoach';
+import { ProgressHero, GoalPathChart, WeeklyChangeChart, StepsChart, MeasurementChart } from '../components/WeightCharts';
+import { computeJourney, buildTrendMap, parseLocalDate, MOODS, NOTE_TAGS } from '../utils/weightAnalytics';
+import { buildCsv } from '../utils/weightCoach';
 
 // BMI calculation functions
 const calculateBMI = (weight, height) => {
@@ -126,8 +122,6 @@ const Weight = () => {
   const [editingWeight, setEditingWeight] = useState(null);
   const [selectedDays, setSelectedDays] = useState(isMobile ? 7 : 30);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM')); // Current month by default
-  const [dateRange, setDateRange] = useState(null); // For custom date filtering
-  const [showDateFilter, setShowDateFilter] = useState(false);
   const [shareMenuAnchor, setShareMenuAnchor] = useState(null);
   const [success, setSuccess] = useState(null);
   // Generated weight report waiting in the preview: { doc, fileName }
@@ -136,18 +130,15 @@ const Weight = () => {
   const [height, setHeight] = useState(170); // height in cm
   const [targetWeight, setTargetWeight] = useState(null); // custom target weight, null means use BMI normal range
   const [gender, setGender] = useState('male'); // 'male' or 'female'
-  const [modalMode, setModalMode] = useState('add-weight'); // 'add-weight', 'set-height', 'set-target', or 'set-gender'
+  const [modalMode, setModalMode] = useState('add-weight'); // 'add-weight', 'set-journey', 'set-height', or 'set-gender'
   const [confirmDeleteWeight, setConfirmDeleteWeight] = useState(null);
   const [journeySettings, setJourneySettings] = useState({ startWeight: null, startDate: null, goalDate: null });
 
-  // Food Intake State
-  const [foodIntakeData, setFoodIntakeData] = useState([]);
-  const [foodIntakeLoading, setFoodIntakeLoading] = useState(false);
-  const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
-  const [editingFoodEntry, setEditingFoodEntry] = useState(null);
-  const [confirmDeleteFood, setConfirmDeleteFood] = useState(null);
-  const [isFoodListOpen, setIsFoodListOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const trendChartRef = useRef(null);
+  const [tab, setTab] = useState(0); // 0 Today, 1 Progress, 2 History
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [measurements, setMeasurements] = useState([]);
+  const [daily, setDaily] = useState({});
   const [isSharing, setIsSharing] = useState(false);
   const [shareProgress, setShareProgress] = useState('');
 
@@ -160,15 +151,26 @@ const Weight = () => {
     gender: gender,
     startWeight: '',
     goalDate: '',
+    note: '',
+    mood: null,
+    tags: [],
   });
+
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    return subscribeToMeasurements(currentUser.uid, setMeasurements);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    return subscribeToDaily(currentUser.uid, setDaily);
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
       const unsubscribe = subscribeToWeights(currentUser.uid, (data) => {
-        console.log('Weight data received:', data);
         if (data) {
           const weightsArray = Object.entries(data).map(([id, weight]) => {
-            console.log('Processing weight entry:', { id, weight });
             // Try to parse date in different formats
             let dateObj;
             if (weight.date) {
@@ -188,27 +190,23 @@ const Weight = () => {
               dateObj = new Date();
             }
             
-            console.log('Parsed date:', dateObj, 'for weight date:', weight.date);
-            
             // Create a clean weight object without nested properties that might cause issues
             const cleanWeight = {
               id,
               weight: weight.weight,
               createdAt: weight.createdAt,
               updatedAt: weight.updatedAt,
+              note: weight.note || '',
+              mood: weight.mood || null,
+              tags: Array.isArray(weight.tags) ? weight.tags : [],
               date: dateObj,
             };
             
-            console.log('Clean weight object:', cleanWeight);
-            
             return cleanWeight;
           });
-          console.log('Processed weights array:', weightsArray);
           weightsArray.sort((a, b) => b.date - a.date); // Most recent first
-          console.log('Setting weights state, length:', weightsArray.length);
           setWeights(weightsArray);
         } else {
-          console.log('No weight data received');
           setWeights([]);
         }
         setLoading(false);
@@ -272,20 +270,6 @@ const Weight = () => {
     loadGender();
   }, [currentUser]);
 
-  // Food Intake Subscription for Weight Records
-  useEffect(() => {
-    if (currentUser && weights.length > 0) {
-      // Subscribe to food intake for the selected weight record
-      const weightToSubscribe = editingWeight || weights[0];
-      const unsubscribe = subscribeToFoodInWeightRecord(currentUser.uid, weightToSubscribe.id, (data) => {
-        setFoodIntakeData(data);
-        setFoodIntakeLoading(false);
-      });
-
-      return () => unsubscribe();
-    }
-  }, [currentUser, weights, editingWeight]);
-
   const handleOpenAddModal = (weight = null) => {
     if (weight) {
       setEditingWeight(weight);
@@ -298,6 +282,9 @@ const Weight = () => {
         targetWeight: targetWeight ? targetWeight.toString() : '',
         startWeight: '',
         goalDate: '',
+        note: weight.note || '',
+        mood: weight.mood || null,
+        tags: weight.tags || [],
       });
     } else {
       setEditingWeight(null);
@@ -310,6 +297,9 @@ const Weight = () => {
         targetWeight: targetWeight ? targetWeight.toString() : '',
         startWeight: '',
         goalDate: '',
+        note: '',
+        mood: null,
+        tags: [],
       });
     }
     setIsAddModalOpen(true);
@@ -326,6 +316,9 @@ const Weight = () => {
       gender: gender,
       startWeight: '',
       goalDate: '',
+      note: '',
+      mood: null,
+      tags: [],
     });
   };
 
@@ -366,7 +359,6 @@ const Weight = () => {
 
   const handleSaveWeight = async () => {
     let heightValue;
-    let targetWeightValue;
 
     if (modalMode === 'set-height') {
       // Only save height
@@ -384,26 +376,6 @@ const Weight = () => {
       } catch (err) {
         console.error('Error saving height:', err);
         setError('Failed to save height. Please try again.');
-      }
-      return;
-    }
-
-    if (modalMode === 'set-target') {
-      // Only save target weight
-      targetWeightValue = parseFloat(formData.targetWeight);
-      if (isNaN(targetWeightValue) || targetWeightValue <= 0) {
-        setError('Please enter a valid target weight');
-        return;
-      }
-
-      try {
-        await saveTargetWeight(currentUser.uid, targetWeightValue);
-        setTargetWeight(targetWeightValue);
-        setSuccess('Target weight updated successfully! 🎯');
-        handleCloseModal();
-      } catch (err) {
-        console.error('Error saving target weight:', err);
-        setError('Failed to save target weight. Please try again.');
       }
       return;
     }
@@ -473,6 +445,9 @@ const Weight = () => {
       const weightData = {
         date: format(formData.date, 'yyyy-MM-dd'), // Local YYYY-MM-DD (toISOString would shift the day in UTC+ zones)
         weight: weightValue,
+        note: formData.note.trim(),
+        mood: formData.mood || null,
+        tags: formData.tags || [],
         createdAt: editingWeight ? editingWeight.createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -512,70 +487,6 @@ const Weight = () => {
     setConfirmDeleteWeight(null);
   };
 
-  // Food Intake Handlers
-  const handleOpenFoodModal = (foodEntry = null) => {
-    setEditingFoodEntry(foodEntry);
-    setIsFoodModalOpen(true);
-  };
-
-  const handleCloseFoodModal = () => {
-    setIsFoodModalOpen(false);
-    setEditingFoodEntry(null);
-  };
-
-  const handleSaveFoodIntake = async (foodData) => {
-    try {
-      if (!weights.length) {
-        setError('Please add a weight entry first before adding food intake.');
-        return;
-      }
-
-      // Target the weight record currently being viewed (opened via "View Food"),
-      // not always the latest one — otherwise food added while viewing an older
-      // entry's list silently attaches to today's record instead.
-      const targetWeight = editingWeight || weights[0];
-
-      if (editingFoodEntry) {
-        await updateFoodInWeightRecord(currentUser.uid, targetWeight.id, editingFoodEntry.id, foodData);
-        setSuccess('Food entry updated successfully! 🍎');
-      } else {
-        await addFoodToWeightRecord(currentUser.uid, targetWeight.id, foodData);
-        setSuccess('Food entry added successfully! 🍎');
-      }
-      handleCloseFoodModal();
-    } catch (err) {
-      console.error('Error saving food intake:', err);
-      setError('Failed to save food entry. Please try again.');
-    }
-  };
-
-  const handleDeleteFoodIntake = async (foodEntryId) => {
-    try {
-      if (!weights.length) {
-        setError('No weight entries found. Cannot delete food entry.');
-        return;
-      }
-
-      const targetWeight = editingWeight || weights[0];
-      await deleteFoodFromWeightRecord(currentUser.uid, targetWeight.id, foodEntryId);
-      setSuccess('Food entry deleted successfully! 🗑️');
-    } catch (err) {
-      console.error('Error deleting food intake:', err);
-      setError('Failed to delete food entry. Please try again.');
-    }
-  };
-
-  const handleConfirmDeleteFood = async () => {
-    if (confirmDeleteFood) {
-      await handleDeleteFoodIntake(confirmDeleteFood.id);
-      setConfirmDeleteFood(null);
-    }
-  };
-
-  const handleCancelDeleteFood = () => {
-    setConfirmDeleteFood(null);
-  };
-
   // Prepare chart data based on selected days
   const chartData = useMemo(() => {
     const data = [];
@@ -603,102 +514,17 @@ const Weight = () => {
     return data;
   }, [weights, selectedDays]);
 
+  const { minWeight, maxWeight } = useMemo(() => {
+    if (weights.length === 0) return { minWeight: null, maxWeight: null };
+    const ws = weights.map((w) => w.weight);
+    return { minWeight: Math.min(...ws), maxWeight: Math.max(...ws) };
+  }, [weights]);
+
   const currentWeight = weights.length > 0 ? weights[0].weight : null;
   const weightChange = weights.length > 1 ? weights[0].weight - weights[1].weight : 0;
   const currentBMI = currentWeight ? calculateBMI(currentWeight, height) : null;
   const bmiCategory = currentBMI ? getBMICategory(currentBMI) : null;
   const idealWeightRange = getIdealWeightRange(height, gender);
-
-  // Calculate estimated days to reach target weight using movement estimation
-  const calculateDaysToTarget = () => {
-    if (!currentWeight || weights.length < 2) return null;
-
-    // Determine target weight
-    let targetWeightValue;
-    let targetType;
-
-    if (targetWeight) {
-      // Custom target weight is set
-      targetWeightValue = targetWeight;
-      targetType = "custom target";
-    } else {
-      // Use BMI normal range
-      if (currentBMI >= 18.5 && currentBMI <= 24.9) {
-        return "Already reached";
-      }
-
-      // Determine target weight based on current BMI
-      if (currentBMI < 18.5) {
-        // Underweight - aim for minimum normal weight
-        targetWeightValue = idealWeightRange.min;
-      } else {
-        // Overweight/Obese - aim for maximum normal weight
-        targetWeightValue = idealWeightRange.max;
-      }
-      targetType = "normal BMI";
-    }
-
-    // If already at target (for custom target)
-    if (targetWeight && Math.abs(currentWeight - targetWeight) < 0.1) {
-      return "Already reached";
-    }
-
-    // Use movement estimation for weight changes (not simple linear)
-    const sortedWeights = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const n = sortedWeights.length;
-
-    if (n < 3) return null; // Need at least 3 data points for estimation
-
-    // Calculate recent trend (last 4 weeks or available data)
-    const recentWeights = sortedWeights.slice(-Math.min(28, n)); // Last 4 weeks max
-    const firstRecent = recentWeights[0];
-    const lastRecent = recentWeights[recentWeights.length - 1];
-
-    const daysSpan = Math.max(1, (new Date(lastRecent.date) - new Date(firstRecent.date)) / (1000 * 60 * 60 * 24));
-    const weightChange = lastRecent.weight - firstRecent.weight;
-    const weeklyRate = (weightChange / daysSpan) * 7; // kg per week
-
-    // Weight loss/gain follows different mechanics - use conservative estimation
-    // Sustainable weight loss: ~0.5-1kg per week
-    // Sustainable weight gain: ~0.2-0.5kg per week
-
-    const weightNeeded = targetWeightValue - currentWeight;
-    const isWeightLoss = weightNeeded < 0;
-
-    // Use more conservative rate for estimation
-    let estimatedWeeklyRate;
-
-    if (isWeightLoss) {
-      // For weight loss, use recent trend but cap at realistic maximum
-      estimatedWeeklyRate = Math.max(weeklyRate, -1.0); // Max 1kg/week loss
-      // If recent trend shows slower loss, use even more conservative estimate
-      if (weeklyRate > -0.2) {
-        estimatedWeeklyRate = -0.5; // Conservative 0.5kg/week loss
-      }
-    } else {
-      // For weight gain, use recent trend but cap at realistic maximum
-      estimatedWeeklyRate = Math.min(weeklyRate, 0.5); // Max 0.5kg/week gain
-      // If recent trend shows slower gain, use conservative estimate
-      if (weeklyRate < 0.1) {
-        estimatedWeeklyRate = 0.2; // Conservative 0.2kg/week gain
-      }
-    }
-
-    if (Math.abs(estimatedWeeklyRate) < 0.01) return "Stable weight"; // No significant change
-
-    const weeksNeeded = Math.abs(weightNeeded) / Math.abs(estimatedWeeklyRate);
-    const daysNeeded = weeksNeeded * 7;
-
-    // Add buffer for weight loss/gain plateaus and sustainability
-    const adjustedDays = isWeightLoss ? daysNeeded * 1.3 : daysNeeded * 1.2; // 30% buffer for loss, 20% for gain
-
-    if (adjustedDays > 365 * 2) return "Long term goal"; // More than 2 years
-    if (adjustedDays < 0) return "Already reached"; // Going in wrong direction
-
-    return Math.ceil(adjustedDays);
-  };
-
-  const daysToTarget = calculateDaysToTarget();
 
   // Journey analytics: use the custom goal, else the BMI-normal ceiling when overweight
   const journeyTarget = targetWeight || (currentBMI && currentBMI >= 25 ? idealWeightRange.max : null);
@@ -736,15 +562,12 @@ const Weight = () => {
 
   // Filter weights by selected month
   const filteredWeights = useMemo(() => {
-    console.log('Filtering weights:', { weights, selectedMonth });
     if (selectedMonth === 'all') {
-      console.log('Returning all weights:', weights);
       return weights;
     }
     const filtered = weights.filter(weight =>
       format(weight.date, 'yyyy-MM') === selectedMonth
     );
-    console.log('Filtered weights for month:', selectedMonth, filtered);
     return filtered;
   }, [weights, selectedMonth]);
 
@@ -790,7 +613,7 @@ const Weight = () => {
       setShareProgress('Capturing chart...');
 
       // Get the chart container reference for image generation
-      const chartContainer = document.querySelector('.recharts-wrapper');
+      const chartContainer = trendChartRef.current?.querySelector('.recharts-wrapper');
       if (!chartContainer) {
         throw new Error('Chart not found. Please try again.');
       }
@@ -798,6 +621,7 @@ const Weight = () => {
       setShareProgress('Generating image...');
 
       // Use html2canvas to capture the chart
+      const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(chartContainer, {
         backgroundColor: '#ffffff',
         scale: 2,
@@ -839,7 +663,6 @@ const Weight = () => {
             return;
           }
         } catch (shareError) {
-          console.log('Web Share API failed for image, falling back to download:', shareError);
           setShareProgress('Web Share API not available, downloading instead...');
         }
       }
@@ -937,17 +760,14 @@ const Weight = () => {
           <Grid item xs={6} sm={3}>
             <Card sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white' }}>
               <CardContent sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="h5" sx={{
-                  fontWeight: 'bold',
-                  color: daysToTarget === "Already reached" ? '#4caf50' : daysToTarget === "Stable weight" ? '#ff9800' : '#2196f3'
-                }}>
-                  {typeof daysToTarget === 'number' ? `${daysToTarget}` : daysToTarget || '--'}
+                <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#2196f3' }}>
+                  {journey && journey.remaining != null ? `${journey.remaining.toFixed(1)} kg` : '--'}
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  Days to {targetWeight ? 'Target' : 'Normal BMI'}
+                  To goal
                 </Typography>
                 <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                  {targetWeight ? `Target: ${targetWeight} kg` : 'Based on current trend'}
+                  {journey && journey.target != null ? `Goal: ${journey.target.toFixed(1)} kg` : 'Set a goal'}
                 </Typography>
               </CardContent>
             </Card>
@@ -957,6 +777,18 @@ const Weight = () => {
 
       {/* Chart Section */}
       <Box sx={{ p: isMobile ? 2 : 3, pt: 3 }}>
+        <Tabs
+          value={tab}
+          onChange={(e, v) => setTab(v)}
+          variant="fullWidth"
+          sx={{ mb: 2, bgcolor: 'background.paper', borderRadius: 2, position: 'sticky', top: 0, zIndex: 10, boxShadow: 1 }}
+        >
+          <Tab label="Today" />
+          <Tab label="Progress" />
+          <Tab label="History" />
+        </Tabs>
+        {tab === 0 && (
+          <>
         <WeightJourney
           journey={journey}
           onQuickLog={handleQuickLog}
@@ -973,6 +805,16 @@ const Weight = () => {
             </CardContent>
           </Card>
         )}
+        <WeightHabits uid={currentUser?.uid} daily={daily} />
+        <WeightCoach weights={weights} journey={journey} daily={daily} measurements={measurements} height={height} gender={gender} />
+          </>
+        )}
+        {tab === 1 && (
+          <>
+        <ProgressHero journey={journey} />
+        <GoalPathChart weights={weights} journey={journey} />
+        <WeightBadges journey={journey} measurements={measurements} />
+        <WeightWhatIf journey={journey} />
         <Card sx={{ mb: 3, borderRadius: 2 }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -994,22 +836,6 @@ const Weight = () => {
                 />
               </Box>
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Chart"}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setIsFullscreen(!isFullscreen)}
-                    sx={{ 
-                      color: 'text.secondary',
-                      bgcolor: isFullscreen ? 'primary.light' : 'transparent',
-                      '&:hover': {
-                        bgcolor: isFullscreen ? 'primary.main' : 'grey.200',
-                        color: isFullscreen ? 'white' : 'text.primary'
-                      }
-                    }}
-                  >
-                    {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-                  </IconButton>
-                </Tooltip>
                 <IconButton
                   size="small"
                   onClick={(event) => setShareMenuAnchor(event.currentTarget)}
@@ -1110,7 +936,7 @@ const Weight = () => {
                 <LinearProgress sx={{ width: '100%' }} />
               </Box>
             ) : (
-              <Box sx={{
+              <Box ref={trendChartRef} sx={{
                 height: isMobile ? 250 : 300,
                 width: '100%',
                 overflowX: 'auto',
@@ -1268,7 +1094,14 @@ const Weight = () => {
           </CardContent>
         </Card>
 
-        {/* Recent Entries */}
+        <WeeklyChangeChart journey={journey} />
+        <StepsChart daily={daily} />
+        <MeasurementChart measurements={measurements} />
+        <WeightMeasurements uid={currentUser?.uid} measurements={measurements} />
+          </>
+        )}
+
+        {tab === 2 && (
         <Card sx={{ borderRadius: 2 }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
@@ -1312,7 +1145,7 @@ const Weight = () => {
                 {isMobile ? (
                   // Mobile Card View
                   <Grid container spacing={2}>
-                    {filteredWeights.map((weight, filteredIndex) => {
+                    {filteredWeights.slice(0, visibleCount).map((weight) => {
                       const bmi = calculateBMI(weight.weight, height);
                       const bmiCategory = getBMICategory(bmi);
 
@@ -1322,19 +1155,10 @@ const Weight = () => {
                       const change = prevWeight ? weight.weight - prevWeight : null;
 
                       // Calculate status indicators based on full dataset
-                      const isLatest = fullIndex === 0;
-                      const isLowest = weights.length > 1 && weight.weight === Math.min(...weights.map(w => w.weight));
-                      const isHighest = weights.length > 1 && weight.weight === Math.max(...weights.map(w => w.weight));
+                      const isLowest = weights.length > 1 && weight.weight === minWeight;
+                      const isHighest = weights.length > 1 && weight.weight === maxWeight;
 
-                      // Check for local peaks (higher than both neighbors in full dataset)
-                      const isPeak = weights.length > 2 &&
-                        fullIndex > 0 && fullIndex < weights.length - 1 &&
-                        weight.weight > prevWeight && weight.weight > weights[fullIndex - 1]?.weight;
 
-                      // Check for local valleys (lower than both neighbors in full dataset)
-                      const isValley = weights.length > 2 &&
-                        fullIndex > 0 && fullIndex < weights.length - 1 &&
-                        weight.weight < prevWeight && weight.weight < weights[fullIndex - 1]?.weight;
 
                       // Determine status chips (only Lowest and Highest)
                       const statusChips = [];
@@ -1441,26 +1265,19 @@ const Weight = () => {
                             </Box>
 
                             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between' }}>
-                              <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={() => {
-                                  setEditingWeight(weight);
-                                  setIsFoodListOpen(true);
-                                }}
-                                sx={{ 
-                                  borderColor: 'primary.main',
-                                  color: 'primary.main',
-                                  fontSize: '0.75rem',
-                                  '&:hover': {
-                                    borderColor: 'primary.dark',
-                                    backgroundColor: 'primary.light',
-                                    color: 'white'
-                                  }
-                                }}
-                              >
-                                🍽️ View Food
-                              </Button>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                {weight.mood && <span>{MOODS.find((m) => m.value === weight.mood)?.emoji} </span>}
+                                {weight.note && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                    {weight.note}
+                                  </Typography>
+                                )}
+                                {weight.tags.length > 0 && (
+                                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                    {weight.tags.map((t) => <Chip key={t} label={t} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />)}
+                                  </Box>
+                                )}
+                              </Box>
                               <Box sx={{ display: 'flex', gap: 1 }}>
                                 <IconButton
                                   size="small"
@@ -1492,35 +1309,25 @@ const Weight = () => {
                         <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Weight</TableCell>
                         <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">BMI</TableCell>
                         <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Change</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Food</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} >Notes</TableCell>
                         <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} align="center">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredWeights.map((weight, filteredIndex) => {
+                      {filteredWeights.slice(0, visibleCount).map((weight) => {
                         const bmi = calculateBMI(weight.weight, height);
                         const bmiCategory = getBMICategory(bmi);
 
                         // Find the index in the full weights array for status calculation
                         const fullIndex = weights.findIndex(w => w.id === weight.id);
                         const prevWeight = weights[fullIndex + 1]?.weight;
-                        const nextWeight = weights[fullIndex - 1]?.weight;
                         const change = prevWeight ? weight.weight - prevWeight : null;
 
                         // Calculate status indicators based on full dataset
-                        const isLatest = fullIndex === 0;
-                        const isLowest = weights.length > 1 && weight.weight === Math.min(...weights.map(w => w.weight));
-                        const isHighest = weights.length > 1 && weight.weight === Math.max(...weights.map(w => w.weight));
+                        const isLowest = weights.length > 1 && weight.weight === minWeight;
+                        const isHighest = weights.length > 1 && weight.weight === maxWeight;
 
-                        // Check for local peaks (higher than both neighbors in full dataset)
-                        const isPeak = weights.length > 2 &&
-                          fullIndex > 0 && fullIndex < weights.length - 1 &&
-                          weight.weight > prevWeight && weight.weight > nextWeight;
 
-                        // Check for local valleys (lower than both neighbors in full dataset)
-                        const isValley = weights.length > 2 &&
-                          fullIndex > 0 && fullIndex < weights.length - 1 &&
-                          weight.weight < prevWeight && weight.weight < nextWeight;
 
                         // Determine status chips (only Lowest and Highest)
                         const statusChips = [];
@@ -1615,30 +1422,18 @@ const Weight = () => {
                                 </Typography>
                               )}
                             </TableCell>
-                            <TableCell align="center">
-                              <Tooltip title="View/Edit Food Intake">
-                                <Button
-                                  variant="outlined"
-                                  size="small"
-                                  onClick={() => {
-                                    // Set the current weight as the context for food tracking
-                                    // This will show food entries for this specific weight record
-                                    setEditingWeight(weight);
-                                    setIsFoodListOpen(true);
-                                  }}
-                                  sx={{ 
-                                    borderColor: 'primary.main',
-                                    color: 'primary.main',
-                                    '&:hover': {
-                                      borderColor: 'primary.dark',
-                                      backgroundColor: 'primary.light',
-                                      color: 'white'
-                                    }
-                                  }}
-                                >
-                                  🍽️ View Food
-                                </Button>
-                              </Tooltip>
+                            <TableCell sx={{ maxWidth: 260 }}>
+                              {weight.mood && <span>{MOODS.find((m) => m.value === weight.mood)?.emoji} </span>}
+                              {weight.note && (
+                                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                  {weight.note}
+                                </Typography>
+                              )}
+                              {weight.tags.length > 0 && (
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                  {weight.tags.map((t) => <Chip key={t} label={t} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />)}
+                                </Box>
+                              )}
                             </TableCell>
                             <TableCell align="center">
                               <Tooltip title="Edit entry">
@@ -1668,8 +1463,14 @@ const Weight = () => {
                 )}
               </Box>
             )}
+            {filteredWeights.length > visibleCount && (
+              <Button fullWidth sx={{ mt: 2 }} onClick={() => setVisibleCount((n) => n + 20)}>
+                Show more ({filteredWeights.length - visibleCount} older)
+              </Button>
+            )}
           </CardContent>
         </Card>
+        )}
 
       </Box>
 
@@ -1686,53 +1487,6 @@ const Weight = () => {
       >
         <AddIcon />
       </Fab>
-
-      {/* Food Intake Modal */}
-      <FoodIntakeModal
-        open={isFoodModalOpen}
-        onClose={handleCloseFoodModal}
-        onSave={handleSaveFoodIntake}
-        initialData={editingFoodEntry}
-        isLoading={foodIntakeLoading}
-        date={editingWeight ? format(subDays(editingWeight.date, 1), 'yyyy-MM-dd') : format(subDays(new Date(), 1), 'yyyy-MM-dd')}
-      />
-
-      {/* Delete Food Confirmation Dialog */}
-      <Dialog
-        open={Boolean(confirmDeleteFood)}
-        onClose={handleCancelDeleteFood}
-        maxWidth="xs"
-        fullWidth
-        disableScrollLock={true}
-        disableEnforceFocus={true}
-        disableAutoFocus={true}
-        disableRestoreFocus={true}
-        PaperProps={{
-          sx: { borderRadius: 2 }
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 'bold', color: 'error.main' }}>
-          🗑️ Confirm Delete Food Entry
-        </DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete this food entry?
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 3, pt: 2 }}>
-          <Button onClick={handleCancelDeleteFood}>Cancel</Button>
-          <Button
-            onClick={handleConfirmDeleteFood}
-            variant="contained"
-            color="error"
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Add/Edit Weight Dialog */}
       <Dialog
@@ -1778,11 +1532,6 @@ const Weight = () => {
                   value="set-height"
                   control={<Radio />}
                   label="📏 Set Height"
-                />
-                <FormControlLabel
-                  value="set-target"
-                  control={<Radio />}
-                  label="🎯 Set Custom Target Weight"
                 />
                 <FormControlLabel
                   value="set-gender"
@@ -1873,6 +1622,51 @@ const Weight = () => {
                 }}
                 sx={{ mb: 2 }}
               />
+
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>How are you feeling?</Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={formData.mood}
+                onChange={(e, v) => setFormData({ ...formData, mood: v })}
+                sx={{ mb: 2, flexWrap: 'wrap' }}
+              >
+                {MOODS.map((m) => (
+                  <ToggleButton key={m.value} value={m.value} aria-label={m.label} sx={{ px: 1.5 }}>
+                    {m.emoji}&nbsp;{m.label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 2 }}>
+                {NOTE_TAGS.map((t) => {
+                  const on = formData.tags.includes(t);
+                  return (
+                    <Chip
+                      key={t}
+                      label={t}
+                      size="small"
+                      color={on ? 'primary' : 'default'}
+                      variant={on ? 'filled' : 'outlined'}
+                      onClick={() => setFormData({
+                        ...formData,
+                        tags: on ? formData.tags.filter((x) => x !== t) : [...formData.tags, t],
+                      })}
+                    />
+                  );
+                })}
+              </Box>
+
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                label="📝 Note (optional)"
+                placeholder="Sleep, workout, stress, anything worth remembering"
+                value={formData.note}
+                onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                inputProps={{ maxLength: 280 }}
+              />
             </>
           ) : modalMode === 'set-height' ? (
             <TextField
@@ -1888,21 +1682,7 @@ const Weight = () => {
               sx={{ mt: 1 }}
               helperText={`Current height: ${height} cm`}
             />
-          ) : (
-            <TextField
-              fullWidth
-              label="🎯 Custom Target Weight (kg)"
-              type="number"
-              placeholder="e.g., 75.0"
-              value={formData.targetWeight}
-              onChange={(e) => setFormData({ ...formData, targetWeight: e.target.value })}
-              InputProps={{
-                inputProps: { min: 0, step: 0.1 }
-              }}
-              sx={{ mt: 1 }}
-              helperText={`Current target: ${targetWeight ? `${targetWeight} kg` : 'BMI normal range'}`}
-            />
-          )}
+          ) : null}
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 2 }}>
           <Button onClick={handleCloseModal}>Cancel</Button>
@@ -1916,8 +1696,6 @@ const Weight = () => {
                 ? !formData.targetWeight
                 : modalMode === 'set-height'
                 ? !formData.height
-                : modalMode === 'set-target'
-                ? !formData.targetWeight
                 : modalMode === 'set-gender'
                 ? !formData.gender
                 : false
@@ -1929,8 +1707,6 @@ const Weight = () => {
               ? 'Save Goal'
               : modalMode === 'set-height'
               ? 'Set Height'
-              : modalMode === 'set-target'
-              ? 'Set Target Weight'
               : modalMode === 'set-gender'
               ? 'Set Gender'
               : 'Save'}
@@ -1977,210 +1753,6 @@ const Weight = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Fullscreen Chart Dialog */}
-      <Dialog
-        open={isFullscreen}
-        onClose={() => setIsFullscreen(false)}
-        maxWidth="xl"
-        fullWidth
-        fullScreen
-        disableScrollLock={true}
-        disableEnforceFocus={true}
-        disableAutoFocus={true}
-        disableRestoreFocus={true}
-        PaperProps={{
-          sx: { 
-            borderRadius: 0,
-            backgroundColor: 'white',
-            height: '100vh'
-          }
-        }}
-      >
-        <DialogTitle sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          backgroundColor: 'grey.50',
-          borderBottom: '1px solid',
-          borderColor: 'divider'
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-              📈 Fullscreen Weight Chart
-            </Typography>
-            <Chip
-              icon={<DateRangeIcon />}
-              label={`${selectedDays} days`}
-              size="small"
-              onClick={() => {
-                const days = [7, 30, 60, 90, 120, 365];
-                const currentIndex = days.indexOf(selectedDays);
-                const nextIndex = (currentIndex + 1) % days.length;
-                setSelectedDays(days[nextIndex]);
-              }}
-              sx={{ cursor: 'pointer', bgcolor: 'primary.light', color: 'white' }}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title="Exit Fullscreen">
-              <IconButton
-                size="small"
-                onClick={() => setIsFullscreen(false)}
-                sx={{ color: 'text.secondary' }}
-              >
-                <FullscreenExitIcon />
-              </IconButton>
-            </Tooltip>
-            <IconButton
-              size="small"
-              onClick={(event) => setShareMenuAnchor(event.currentTarget)}
-              sx={{ color: 'text.secondary' }}
-            >
-              <ShareIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ p: 3, overflow: 'hidden' }}>
-          <Box sx={{ 
-            height: isMobile ? 400 : 500,
-            width: '100%',
-            overflowX: 'auto',
-            overflowY: 'hidden',
-            backgroundColor: 'white',
-            // Enhanced scrollbar styling for fullscreen mode
-            '&::-webkit-scrollbar': {
-              height: '12px',
-              width: '12px',
-            },
-            '&::-webkit-scrollbar-track': {
-              backgroundColor: 'grey.100',
-              borderRadius: '6px',
-            },
-            '&::-webkit-scrollbar-thumb': {
-              backgroundColor: 'grey.500',
-              borderRadius: '6px',
-              border: '2px solid white',
-              '&:hover': {
-                backgroundColor: 'grey.700',
-              },
-            },
-            // Add subtle shadow to indicate scrollable content
-            '&::after': {
-              content: '""',
-              position: 'absolute',
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: '20px',
-              background: 'linear-gradient(to left, rgba(0,0,0,0.1), transparent)',
-              pointerEvents: 'none',
-              opacity: 0,
-              transition: 'opacity 0.3s ease',
-            },
-            '&:hover::after': {
-              opacity: 1,
-            }
-          }}>
-            <ResponsiveContainer width={chartData.length * 60} height="100%">
-              <LineChart data={chartData} margin={{ top: 20, right: 40, left: 40, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis
-                  dataKey="date"
-                  stroke="#666"
-                  fontSize={isMobile ? 12 : 14}
-                  interval={0} // Show all ticks for detailed view
-                  angle={isMobile ? -45 : -30}
-                  textAnchor={isMobile ? 'end' : 'middle'}
-                  height={isMobile ? 80 : 70}
-                  tick={{ fill: '#666', fontSize: isMobile ? 10 : 12 }}
-                  tickLine={{ stroke: '#e0e0e0' }}
-                  axisLine={{ stroke: '#e0e0e0' }}
-                />
-                <YAxis
-                  stroke="#666"
-                  fontSize={isMobile ? 12 : 14}
-                  domain={([min, max]) => {
-                        const lo = journeyTarget ? Math.min(min, journeyTarget) : min;
-                        return [Math.floor(lo - 1), Math.ceil(max + 1)];
-                      }}
-                  width={isMobile ? 60 : 80}
-                  tick={{ fill: '#666', fontSize: isMobile ? 10 : 12 }}
-                  tickLine={{ stroke: '#e0e0e0' }}
-                  axisLine={{ stroke: '#e0e0e0' }}
-                />
-                <RechartsTooltip 
-                  content={CustomTooltip} 
-                  cursor={{ stroke: '#667eea', strokeWidth: 3, strokeDasharray: '5 5' }}
-                  wrapperStyle={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                  }}
-                />
-
-                {/* BMI Zone lines */}
-                <ReferenceLine
-                  y={idealWeightRange.min}
-                  stroke="#e91e63"
-                  strokeDasharray="5 5"
-                  strokeWidth={2}
-                  label={{ value: "Underweight", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
-                />
-                <ReferenceLine
-                  y={idealWeightRange.max}
-                  stroke="#4caf50"
-                  strokeDasharray="5 5"
-                  strokeWidth={2}
-                  label={{ value: "Normal", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
-                />
-                <ReferenceLine
-                  y={idealWeightRange.max + ((idealWeightRange.max - idealWeightRange.min) * 0.2)}
-                  stroke="#ff9800"
-                  strokeDasharray="5 5"
-                  strokeWidth={2}
-                  label={{ value: "Overweight", position: "topLeft", fontSize: isMobile ? 10 : 12 }}
-                />
-
-                {/* Target weight line */}
-                {targetWeight ? (
-                  <ReferenceLine
-                    y={targetWeight}
-                    stroke="#2196f3"
-                    strokeWidth={3}
-                    strokeDasharray="8 8"
-                    label={{ value: `Target`, position: "topRight", fontSize: isMobile ? 12 : 14, fill: "#2196f3" }}
-                  />
-                ) : currentBMI && (
-                  <ReferenceLine
-                    y={currentBMI < 18.5 ? idealWeightRange.min : idealWeightRange.max}
-                    stroke="#2196f3"
-                    strokeWidth={3}
-                    strokeDasharray="8 8"
-                    label={{
-                      value: `BMI Target: ${currentBMI < 18.5 ? idealWeightRange.min.toFixed(1) : idealWeightRange.max.toFixed(1)}kg`,
-                      position: "topRight",
-                      fontSize: isMobile ? 12 : 14,
-                      fill: "#2196f3"
-                    }}
-                  />
-                )}
-
-                <Line
-                  type="monotone"
-                  dataKey="weight"
-                  stroke="#667eea"
-                  strokeWidth={isMobile ? 3 : 4}
-                  dot={{ fill: '#667eea', strokeWidth: isMobile ? 1 : 2, r: isMobile ? 4 : 5 }}
-                  activeDot={{ r: isMobile ? 5 : 7, stroke: '#667eea', strokeWidth: isMobile ? 1 : 2 }}
-                  connectNulls={true}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </Box>
-        </DialogContent>
-      </Dialog>
-
       {/* Share Menu */}
       <Menu
         anchorEl={shareMenuAnchor}
@@ -2210,8 +1782,19 @@ const Weight = () => {
             try {
               // Get the chart container reference for PDF
               // The chart is inside a ResponsiveContainer, so we need to find the actual chart wrapper
-              const chartContainer = document.querySelector('.recharts-wrapper');
-              const doc = await generateWeightReport(weights, selectedDays, idealWeightRange.min, chartContainer ? { current: chartContainer } : null);
+              const chartContainer = trendChartRef.current?.querySelector('.recharts-wrapper');
+              const { generateWeightReport } = await import('../utils/weightReport');
+              const doc = await generateWeightReport({
+                weights,
+                journey,
+                measurements,
+                daily,
+                height,
+                gender,
+                selectedDays,
+                idealRange: idealWeightRange,
+                chartEl: chartContainer,
+              });
               const fileName = `weight_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
               setPdfPreview({ doc, fileName });
             } catch (error) {
@@ -2233,6 +1816,21 @@ const Weight = () => {
               <CircularProgress size={20} />
             </Box>
           )}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setShareMenuAnchor(null);
+            const blob = new Blob([buildCsv(weights, daily)], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `weight_data_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            setSuccess('Data exported as CSV 📄');
+          }}
+        >
+          <ListItemText primary="Export CSV" />
         </MenuItem>
         <MenuItem
           onClick={async () => {
@@ -2284,35 +1882,6 @@ const Weight = () => {
           </Card>
         </Box>
       )}
-
-      {/* Food List Modal */}
-      <Dialog
-        open={isFoodListOpen}
-        onClose={() => setIsFoodListOpen(false)}
-        maxWidth="md"
-        fullWidth
-        disableScrollLock={true}
-        disableEnforceFocus={true}
-        disableAutoFocus={true}
-        disableRestoreFocus={true}
-        PaperProps={{
-          sx: { borderRadius: 2 }
-        }}
-      >
-        <DialogContent>
-          <FoodIntakeList
-            foodIntakeData={foodIntakeData}
-            isLoading={foodIntakeLoading}
-            date={editingWeight ? format(subDays(editingWeight.date, 1), 'yyyy-MM-dd') : format(subDays(new Date(), 1), 'yyyy-MM-dd')}
-            onAdd={() => handleOpenFoodModal()}
-            onEdit={(entry) => handleOpenFoodModal(entry)}
-            onDelete={(entryId) => setConfirmDeleteFood({ id: entryId })}
-          />
-        </DialogContent>
-        <DialogActions sx={{ p: 3, pt: 2 }}>
-          <Button onClick={() => setIsFoodListOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Success/Error Snackbars */}
       {/* Preview the weight report before it is downloaded or shared */}

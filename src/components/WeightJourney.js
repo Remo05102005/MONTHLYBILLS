@@ -50,7 +50,7 @@ const fmtKg = (n, signed = false) => {
   return `${n > 0 ? '+' : n < 0 ? '−' : ''}${s} kg`;
 };
 
-const WeightJourney = ({ journey, onQuickLog, onEditGoal, hasTarget }) => {
+const WeightJourney = ({ journey, onQuickLog, onEditGoal }) => {
   const [quick, setQuick] = useState('');
 
   if (!journey) return null;
@@ -185,9 +185,9 @@ const WeightJourney = ({ journey, onQuickLog, onEditGoal, hasTarget }) => {
           </Grid>
           <Grid item xs={6} sm={3}>
             <Stat
-              label="Daily deficit"
-              value={j.dailyDeficit ? `~${j.dailyDeficit} kcal` : '--'}
-              sub="implied by pace"
+              label="Best streak"
+              value={`${j.bestStreak} day${j.bestStreak === 1 ? '' : 's'}`}
+              sub={`${j.entries} weigh-ins`}
             />
           </Grid>
           <Grid item xs={4}>
