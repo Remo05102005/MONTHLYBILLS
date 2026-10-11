@@ -1,6 +1,6 @@
-import { addData, updateData, deleteData, subscribeToData, queryData } from './database';
+import { addData, updateData, deleteData, subscribeToData } from './database';
 import { removeUndefined } from '../utils/cleanObject';
-import { ref, query, orderByChild, startAt, endAt, get, limitToLast, push, update, remove, onValue } from 'firebase/database';
+import { ref, get, update } from 'firebase/database';
 import { realtimeDb } from './config';
 
 export const addWeightToDB = (uid, weight) =>
@@ -14,44 +14,6 @@ export const deleteWeightFromDB = (uid, id) =>
 
 export const subscribeToWeights = (uid, callback) =>
   subscribeToData(`users/${uid}/weights`, callback);
-
-export const fetchWeightsByDateRange = async (uid, startDate, endDate) => {
-  try {
-    const weightsRef = ref(realtimeDb, `users/${uid}/weights`);
-    const weightsQuery = query(
-      weightsRef,
-      orderByChild('date'),
-      startAt(startDate.toISOString()),
-      endAt(endDate.toISOString())
-    );
-
-    const snapshot = await get(weightsQuery);
-    return snapshot.exists() ? snapshot.val() : null;
-  } catch (error) {
-    console.error('Error fetching weights by date range:', error);
-    throw error;
-  }
-};
-
-export const fetchLast30DaysWeights = async (uid) => {
-  try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const weightsRef = ref(realtimeDb, `users/${uid}/weights`);
-    const weightsQuery = query(
-      weightsRef,
-      orderByChild('date'),
-      startAt(thirtyDaysAgo.toISOString())
-    );
-
-    const snapshot = await get(weightsQuery);
-    return snapshot.exists() ? snapshot.val() : null;
-  } catch (error) {
-    console.error('Error fetching last 30 days weights:', error);
-    throw error;
-  }
-};
 
 export const fetchHeight = async (uid) => {
   try {
@@ -148,125 +110,30 @@ export const saveGender = async (uid, gender) => {
   }
 };
 
-/**
- * Add food intake entry to a specific weight record
- * @param {string} uid - User ID
- * @param {string} weightId - Weight record ID
- * @param {Object} foodData - Food intake data
- * @returns {Promise<string>} - The new food entry ID
- */
-export const addFoodToWeightRecord = async (uid, weightId, foodData) => {
-  try {
-    const foodEntry = {
-      foodItem: foodData.foodItem.trim(),
-      quantity: parseFloat(foodData.quantity),
-      unit: foodData.unit,
-      time: foodData.time,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+// Body measurements (cm): users/{uid}/measurements/{id} = { date, waist, chest, hips, arm, thigh, neck }
+export const addMeasurementToDB = (uid, measurement) =>
+  addData(`users/${uid}/measurements`, removeUndefined(measurement));
 
-    // Include nutrient data if available
-    if (foodData.nutrients) {
-      foodEntry.nutrients = foodData.nutrients;
-    }
+export const updateMeasurementInDB = (uid, id, measurement) =>
+  updateData(`users/${uid}/measurements/${id}`, removeUndefined(measurement));
 
-    const foodRef = ref(realtimeDb, `users/${uid}/weights/${weightId}/food`);
-    const newFoodRef = push(foodRef, removeUndefined(foodEntry));
-    
-    return newFoodRef.key;
-  } catch (error) {
-    console.error('Error adding food to weight record:', error);
-    throw error;
-  }
-};
+export const deleteMeasurementFromDB = (uid, id) =>
+  deleteData(`users/${uid}/measurements/${id}`);
 
-/**
- * Update food intake entry in a weight record
- * @param {string} uid - User ID
- * @param {string} weightId - Weight record ID
- * @param {string} foodId - Food entry ID
- * @param {Object} foodData - Updated food data
- * @returns {Promise<void>}
- */
-export const updateFoodInWeightRecord = async (uid, weightId, foodId, foodData) => {
-  try {
-    const foodEntry = {
-      foodItem: foodData.foodItem.trim(),
-      quantity: parseFloat(foodData.quantity),
-      unit: foodData.unit,
-      time: foodData.time,
-      updatedAt: new Date().toISOString()
-    };
+// Calls back with an array sorted by date ascending
+export const subscribeToMeasurements = (uid, callback) =>
+  subscribeToData(`users/${uid}/measurements`, (data) => {
+    const list = data
+      ? Object.entries(data).map(([id, m]) => ({ id, ...m }))
+      : [];
+    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    callback(list);
+  });
 
-    // Include nutrient data if available
-    if (foodData.nutrients) {
-      foodEntry.nutrients = foodData.nutrients;
-    }
+// Daily habit log: users/{uid}/daily/{yyyy-MM-dd} = { water, steps, sleep, workout }
+export const saveDailyLog = (uid, date, data) =>
+  updateData(`users/${uid}/daily/${date}`, removeUndefined(data));
 
-    const foodRef = ref(realtimeDb, `users/${uid}/weights/${weightId}/food/${foodId}`);
-    await update(foodRef, removeUndefined(foodEntry));
-  } catch (error) {
-    console.error('Error updating food in weight record:', error);
-    throw error;
-  }
-};
-
-/**
- * Delete food intake entry from a weight record
- * @param {string} uid - User ID
- * @param {string} weightId - Weight record ID
- * @param {string} foodId - Food entry ID
- * @returns {Promise<void>}
- */
-export const deleteFoodFromWeightRecord = async (uid, weightId, foodId) => {
-  try {
-    const foodRef = ref(realtimeDb, `users/${uid}/weights/${weightId}/food/${foodId}`);
-    await remove(foodRef);
-  } catch (error) {
-    console.error('Error deleting food from weight record:', error);
-    throw error;
-  }
-};
-
-/**
- * Subscribe to food intake data for a specific weight record
- * @param {string} uid - User ID
- * @param {string} weightId - Weight record ID
- * @param {Function} callback - Callback function
- * @returns {Function} - Unsubscribe function
- */
-export const subscribeToFoodInWeightRecord = (uid, weightId, callback) => {
-  try {
-    const foodRef = ref(realtimeDb, `users/${uid}/weights/${weightId}/food`);
-    
-    const unsubscribe = onValue(foodRef, (snapshot) => {
-      const data = snapshot.val();
-      const foodList = [];
-      
-      if (data) {
-        Object.keys(data).forEach(foodId => {
-          const entry = {
-            id: foodId,
-            ...data[foodId]
-          };
-          foodList.push(entry);
-        });
-      }
-      
-      // Sort by time
-      foodList.sort((a, b) => {
-        if (a.time < b.time) return -1;
-        if (a.time > b.time) return 1;
-        return 0;
-      });
-      
-      callback(foodList);
-    });
-
-    return unsubscribe;
-  } catch (error) {
-    console.error('Error subscribing to food in weight record:', error);
-    throw error;
-  }
-};
+// Calls back with an object keyed by 'yyyy-MM-dd'
+export const subscribeToDaily = (uid, callback) =>
+  subscribeToData(`users/${uid}/daily`, (data) => callback(data || {}));
