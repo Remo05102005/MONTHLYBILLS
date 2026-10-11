@@ -15,13 +15,11 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ShareIcon from '@mui/icons-material/Share';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+import 'pdfjs-dist/build/pdf.worker.entry';
 
 // Mobile Chrome cannot show a PDF inside an iframe (it only offers "Open"),
-// so pages are rasterised to canvases with pdf.js instead.
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.js',
-  import.meta.url
-).toString();
+// so pages are rasterised to canvases with pdf.js instead. The worker is
+// bundled and run in-page so it cannot fail to load as a separate file.
 
 const PdfPages = ({ blob, onFail }) => {
   const containerRef = useRef(null);
