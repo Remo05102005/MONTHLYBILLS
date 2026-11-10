@@ -165,42 +165,89 @@ export const sendTelegramDocument = async (botToken, chatId, jsonData, filename 
  * @param {string} chatId - Telegram chat ID to send backup to
  * @param {string} databaseUrl - Firebase Realtime Database URL
  */
+// Top-level nodes making up the whole database. /users holds every user's data;
+// /public_shares holds shared conversations (optional - may be unreadable).
+const fetchNode = async (databaseUrl, node, idToken) => {
+  const response = await fetch(`${databaseUrl}/${node}.json?auth=${idToken}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Firebase response error:', node, response.status, errorText);
+    throw new Error(`Failed to fetch ${node} (${response.status}): ${errorText}`);
+  }
+  return response.json();
+};
+
+/**
+ * Fetch the whole database (all users) as raw JSON. Admin-only in practice:
+ * Firebase rules must restrict reads of /users to the admin account.
+ */
+export const fetchFullDatabase = async (currentUser, databaseUrl) => {
+  const idToken = await currentUser.getIdToken();
+  const users = await fetchNode(databaseUrl, 'users', idToken);
+  if (!users) {
+    throw new Error('No data found in database');
+  }
+  let publicShares = null;
+  try {
+    publicShares = await fetchNode(databaseUrl, 'public_shares', idToken);
+  } catch (e) {
+    console.warn('Skipping public_shares in backup:', e.message);
+  }
+  return { users, public_shares: publicShares };
+};
+
+const backupFilename = () => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `firebase-backup-${timestamp}.json`;
+};
+
 export const backupDatabaseToTelegram = async (currentUser, botToken, chatId, databaseUrl) => {
   try {
-    // Get user's Firebase ID token for authentication
-    const idToken = await currentUser.getIdToken();
-
-    // Call Firebase REST API to get users data as raw JSON
-    // Reading from /users.json instead of /.json to match Firebase rules
-    const response = await fetch(
-      `${databaseUrl}/users.json?auth=${idToken}`
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Firebase response error:', response.status, errorText);
-      throw new Error(`Failed to fetch database (${response.status}): ${errorText}`);
-    }
-
-    // Get raw JSON - NO MODIFICATION
-    const rawJsonData = await response.json();
-
-    // Check if data exists
-    if (!rawJsonData) {
-      throw new Error('No data found in database');
-    }
-
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = `firebase-backup-${timestamp}.json`;
-    const caption = `📦 Database Backup\n📅 ${new Date().toLocaleString()}\n💾 Full raw JSON export`;
-
-    // Send to Telegram
-    return await sendTelegramDocument(botToken, chatId, rawJsonData, filename, caption);
+    const data = await fetchFullDatabase(currentUser, databaseUrl);
+    const caption = `📦 Database Backup\n📅 ${new Date().toLocaleString()}\n💾 Full raw JSON export (all users)`;
+    return await sendTelegramDocument(botToken, chatId, data, backupFilename(), caption);
   } catch (error) {
     console.error('Error backing up database to Telegram:', error);
     throw error;
   }
+};
+
+/**
+ * Share the full backup via the device share sheet (Telegram, WhatsApp, Drive...).
+ * Falls back to a file download when file sharing isn't supported.
+ */
+export const shareBackupJson = async (currentUser, databaseUrl) => {
+  const data = await fetchFullDatabase(currentUser, databaseUrl);
+  const filename = backupFilename();
+  const file = new File([JSON.stringify(data, null, 2)], filename, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Database backup' });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancelled';
+      throw e;
+    }
+  }
+  downloadFile(file);
+  return 'downloaded';
+};
+
+/** Download the full backup directly as a JSON file. */
+export const downloadBackupJson = async (currentUser, databaseUrl) => {
+  const data = await fetchFullDatabase(currentUser, databaseUrl);
+  downloadFile(new File([JSON.stringify(data, null, 2)], backupFilename(), { type: 'application/json' }));
+};
+
+const downloadFile = (file) => {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 };
 
 export default {
@@ -209,5 +256,7 @@ export default {
   deleteReminder,
   sendTelegramMessage,
   sendTelegramDocument,
-  backupDatabaseToTelegram
+  backupDatabaseToTelegram,
+  shareBackupJson,
+  downloadBackupJson
 };

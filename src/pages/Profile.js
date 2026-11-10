@@ -2,7 +2,7 @@ import React, { useState, useEffect, createContext, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { updateData, getData } from '../firebase/database';
-import { backupDatabaseToTelegram } from '../services/notificationService';
+import { backupDatabaseToTelegram, shareBackupJson, downloadBackupJson } from '../services/notificationService';
 import { realtimeDb } from '../firebase/config';
 import {
   Container,
@@ -22,7 +22,7 @@ import {
   CircularProgress,
   Snackbar,
 } from '@mui/material';
-import { PhotoCamera, Logout, Settings as SettingsIcon, Backup as BackupIcon } from '@mui/icons-material';
+import { PhotoCamera, Logout, Settings as SettingsIcon, Backup as BackupIcon, Share as ShareIcon, Download as DownloadIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import ManageSubcategories from '../components/ManageSubcategories';
 
@@ -44,6 +44,8 @@ export default function Profile() {
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupSuccess, setBackupSuccess] = useState('');
   const [backupError, setBackupError] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
 
   // Admin Telegram ID and bot token must come from environment variables only —
   // no hardcoded fallback secret shipped in the bundle (and never commit real
@@ -138,6 +140,39 @@ export default function Profile() {
     }
 
     setBackupLoading(false);
+  };
+
+  // Share full backup JSON via device share sheet (Admin only)
+  const handleShareBackup = async () => {
+    if (!isAdmin) return;
+    setShareLoading(true);
+    setBackupError('');
+    setBackupSuccess('');
+    try {
+      const result = await shareBackupJson(currentUser, DATABASE_URL);
+      if (result === 'shared') setBackupSuccess('✅ Backup shared!');
+      if (result === 'downloaded') setBackupSuccess('✅ Sharing not supported here — backup downloaded instead.');
+    } catch (error) {
+      console.error('Share backup error:', error);
+      setBackupError(`❌ Share failed: ${error.message}`);
+    }
+    setShareLoading(false);
+  };
+
+  // Download full backup JSON directly (Admin only)
+  const handleDownloadBackup = async () => {
+    if (!isAdmin) return;
+    setDownloadLoading(true);
+    setBackupError('');
+    setBackupSuccess('');
+    try {
+      await downloadBackupJson(currentUser, DATABASE_URL);
+      setBackupSuccess('✅ Backup JSON downloaded.');
+    } catch (error) {
+      console.error('Download backup error:', error);
+      setBackupError(`❌ Download failed: ${error.message}`);
+    }
+    setDownloadLoading(false);
   };
 
   return (
@@ -270,7 +305,7 @@ export default function Profile() {
           {backupSuccess && <Alert severity="success" sx={{ mb: 2 }}>{backupSuccess}</Alert>}
           
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Click the button below to backup the entire database and receive it as a JSON file on your Telegram.
+            Click the button below to backup the entire database (all users) and receive it as a JSON file on your Telegram, share it, or download the JSON directly.
           </Typography>
           
           <Button
@@ -280,11 +315,33 @@ export default function Profile() {
             fullWidth
             startIcon={backupLoading ? <CircularProgress size={20} color="inherit" /> : <BackupIcon />}
             onClick={handleBackupToTelegram}
-            disabled={backupLoading}
+            disabled={backupLoading || shareLoading || downloadLoading}
             sx={{ borderRadius: 2, py: 1.5, fontWeight: 600 }}
           >
             {backupLoading ? 'Backing up...' : 'Backup to Telegram'}
           </Button>
+          <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+            <Button
+              variant="outlined"
+              fullWidth
+              startIcon={shareLoading ? <CircularProgress size={20} color="inherit" /> : <ShareIcon />}
+              onClick={handleShareBackup}
+              disabled={backupLoading || shareLoading || downloadLoading}
+              sx={{ borderRadius: 2, fontWeight: 600 }}
+            >
+              Share
+            </Button>
+            <Button
+              variant="outlined"
+              fullWidth
+              startIcon={downloadLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+              onClick={handleDownloadBackup}
+              disabled={backupLoading || shareLoading || downloadLoading}
+              sx={{ borderRadius: 2, fontWeight: 600 }}
+            >
+              Download JSON
+            </Button>
+          </Box>
         </Paper>
       )}
 
