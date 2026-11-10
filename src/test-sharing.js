@@ -39,8 +39,8 @@ async function testConversationSharing() {
       }))
     };
 
-    // Encode the data as base64
-    const encodedData = btoa(JSON.stringify(shareableData));
+    // Encode the data as base64 with Unicode-safe encoding (supports Telugu and other UTF-8 characters)
+    const encodedData = btoa(unescape(encodeURIComponent(JSON.stringify(shareableData))));
     console.log(`✅ Data encoded: ${encodedData.substring(0, 50)}...\n`);
 
     // Test 4: Create shareable URL
@@ -50,9 +50,11 @@ async function testConversationSharing() {
     console.log(`✅ Shareable URL created:`);
     console.log(`   ${shareableUrl}\n`);
 
-    // Test 5: Decode and verify data
+    // Test 5: Decode and verify data (Unicode-safe Base64 decoding)
     console.log('5. Testing data decoding...');
-    const decodedData = JSON.parse(atob(encodedData));
+    const binaryString = atob(encodedData);
+    const decodedString = decodeURIComponent(escape(binaryString));
+    const decodedData = JSON.parse(decodedString);
     console.log(`✅ Data decoded successfully:`);
     console.log(`   - Session: ${decodedData.title} #${decodedData.sessionNumber}`);
     console.log(`   - Conversations: ${decodedData.conversations.length}`);

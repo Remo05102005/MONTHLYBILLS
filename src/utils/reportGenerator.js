@@ -2,6 +2,10 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from 'date-fns';
 
+// Telugu Unicode range: U+0C00 to U+0C7F
+const TELUGU_REGEX = /[\u0C00-\u0C7F]/;
+const hasTelugu = (text) => text && typeof text === 'string' && TELUGU_REGEX.test(text);
+
 // ---------- palette ----------
 const NAVY = [15, 23, 42];
 const GREY = [100, 116, 139];
@@ -75,6 +79,22 @@ const FOOD = ['Milk', 'Vegetables', 'Fruits', 'Groceries', 'Chicken', 'Eggs'];
  */
 export const generateMonthlyReport = (transactions, month, previousTransactions = []) => {
   const doc = new jsPDF();
+
+  // Register Telugu font (add NotoSansTelugu-Regular.ttf to public/fonts/ for Telugu PDF rendering)
+  try {
+    doc.addFileToVFS('NotoSansTelugu-Regular.ttf', '');
+    doc.addFont('NotoSansTelugu-Regular.ttf', 'NotoSansTelugu', 'normal');
+  } catch (e) { /* font file not added yet; Telugu falls back to helvetica */ }
+
+  // Monkey-patch doc.text to auto-switch to Telugu font when Telugu chars detected
+  const originalText = doc.text.bind(doc);
+  doc.text = (text, x, y, options) => {
+    if (hasTelugu(text)) {
+      try { doc.setFont('NotoSansTelugu', 'normal'); } catch (e) { /* fallback */ }
+    }
+    return originalText(text, x, y, options);
+  };
+
   const W = doc.internal.pageSize.width;
   const H = doc.internal.pageSize.height;
   const M = 15;

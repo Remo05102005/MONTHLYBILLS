@@ -80,18 +80,39 @@ export async function getUserContextData(uid, options = {}) {
     transactions.splice(0, transactions.length, ...filtered);
   }
 
+  // XML escape helper for text content and attribute values
+  const xmlEscapeText = (str) => {
+    if (typeof str !== 'string') return String(str || '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  const xmlEscapeAttr = (str) => {
+    if (typeof str !== 'string') return String(str || '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
   // Build XML transaction list
   const transactionListXml = transactions.map(t => {
     const date = t.date ? format(new Date(t.date), 'yyyy-MM-dd') : '';
     const amount = typeof t.amount === 'number' ? t.amount : Number(t.amount || 0);
     const category = t.category || 'Other';
     const type = t.type || 'expense';
-    const desc = (t.description || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const desc = xmlEscapeText(t.description || '');
 
-    return `<transaction id="${t.id || ''}" date="${date}" type="${type}" category="${category}" amount="${amount}">${desc}</transaction>`;
+    return `<transaction id="${xmlEscapeAttr(t.id || '')}" date="${xmlEscapeAttr(date)}" type="${xmlEscapeAttr(type)}" category="${xmlEscapeAttr(category)}" amount="${xmlEscapeAttr(amount)}">${desc}</transaction>`;
   }).join('\n');
 
-  const userXml = `<context>\n  <user name="${userName || ''}" id="${uid}"/>\n  <transactions>\n    ${transactionListXml}\n  </transactions>\n  <query>${(query || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</query>\n</context>`;
+  const userXml = `<context>\n  <user name="${xmlEscapeAttr(userName || '')}" id="${xmlEscapeAttr(uid)}"/>\n  <transactions>\n    ${transactionListXml}\n  </transactions>\n  <query>${xmlEscapeText(query || '')}</query>\n</context>`;
 
   return {
     xml: userXml,

@@ -71,10 +71,11 @@ const SharedConversation = () => {
           return;
         }
 
-        // Decode the data with better error handling
+        // Decode the data with Unicode-safe Base64 decoding (supports Telugu and other UTF-8 characters)
         let decodedData;
         try {
-          const decodedString = atob(encodedData);
+          const binaryString = atob(encodedData);
+          const decodedString = decodeURIComponent(escape(binaryString));
           decodedData = JSON.parse(decodedString);
         } catch (decodeError) {
           console.error('Decoding error:', decodeError);

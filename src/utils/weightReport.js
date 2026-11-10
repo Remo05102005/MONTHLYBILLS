@@ -11,6 +11,10 @@ import {
 } from './weightAnalytics';
 import { summarizeDaily, bodyComposition, detectPlateau } from './weightCoach';
 
+// Telugu Unicode range: U+0C00 to U+0C7F
+const TELUGU_REGEX = /[\u0C00-\u0C7F]/;
+const hasTelugu = (text) => text && typeof text === 'string' && TELUGU_REGEX.test(text);
+
 const NAVY = [15, 23, 42];
 const BLUE = [59, 130, 246];
 const ROW = [248, 250, 252];
@@ -46,6 +50,21 @@ export const generateWeightReport = async ({
   const valid = weights.filter((w) => w.weight && !Number.isNaN(w.weight));
   if (valid.length === 0) throw new Error('No weight data available');
   const asc = [...valid].sort((a, b) => a.date - b.date);
+
+  // Register Telugu font (add NotoSansTelugu-Regular.ttf to public/fonts/ for Telugu PDF rendering)
+  try {
+    doc.addFileToVFS('NotoSansTelugu-Regular.ttf', '');
+    doc.addFont('NotoSansTelugu-Regular.ttf', 'NotoSansTelugu', 'normal');
+  } catch (e) { /* font file not added yet; Telugu falls back to helvetica */ }
+
+  // Monkey-patch doc.text to auto-switch to Telugu font when Telugu chars detected
+  const originalText = doc.text.bind(doc);
+  doc.text = (text, x, y, options) => {
+    if (hasTelugu(text)) {
+      try { doc.setFont('NotoSansTelugu', 'normal'); } catch (e) { /* fallback */ }
+    }
+    return originalText(text, x, y, options);
+  };
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();

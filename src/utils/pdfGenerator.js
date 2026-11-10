@@ -11,6 +11,10 @@ import {
   eachDayOfInterval
 } from 'date-fns';
 
+// Telugu Unicode range: U+0C00 to U+0C7F
+const TELUGU_REGEX = /[\u0C00-\u0C7F]/;
+const hasTelugu = (text) => text && typeof text === 'string' && TELUGU_REGEX.test(text);
+
 export const generatePDF = (data, type = 'monthly') => {
   try {
     // Create PDF with A4 size
@@ -19,7 +23,22 @@ export const generatePDF = (data, type = 'monthly') => {
       unit: 'mm',
       format: 'a4'
     });
-    
+
+    // Register Telugu font (add NotoSansTelugu-Regular.ttf to public/fonts/ for Telugu PDF rendering)
+    try {
+      doc.addFileToVFS('NotoSansTelugu-Regular.ttf', '');
+      doc.addFont('NotoSansTelugu-Regular.ttf', 'NotoSansTelugu', 'normal');
+    } catch (e) { /* font file not added yet; Telugu falls back to helvetica */ }
+
+    // Monkey-patch doc.text to auto-switch to Telugu font when Telugu chars detected
+    const originalText = doc.text.bind(doc);
+    doc.text = (text, x, y, options) => {
+      if (hasTelugu(text)) {
+        try { doc.setFont('NotoSansTelugu', 'normal'); } catch (e) { /* fallback */ }
+      }
+      return originalText(text, x, y, options);
+    };
+
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
@@ -992,6 +1011,22 @@ export const generatePDF = (data, type = 'monthly') => {
 
 export const generateCategoryAnalysisPDF = (transactions, periodLabel = '') => {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  // Register Telugu font (add NotoSansTelugu-Regular.ttf to public/fonts/ for Telugu PDF rendering)
+  try {
+    doc.addFileToVFS('NotoSansTelugu-Regular.ttf', '');
+    doc.addFont('NotoSansTelugu-Regular.ttf', 'NotoSansTelugu', 'normal');
+  } catch (e) { /* font file not added yet; Telugu falls back to helvetica */ }
+
+  // Monkey-patch doc.text to auto-switch to Telugu font when Telugu chars detected
+  const originalText = doc.text.bind(doc);
+  doc.text = (text, x, y, options) => {
+    if (hasTelugu(text)) {
+      try { doc.setFont('NotoSansTelugu', 'normal'); } catch (e) { /* fallback */ }
+    }
+    return originalText(text, x, y, options);
+  };
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
   let y = 20;
